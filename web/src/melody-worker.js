@@ -1,5 +1,6 @@
 import * as ort from 'onnxruntime-web/webgpu';
 import { EventTokenizer, GenerationCancelled, generateSong, validateOptions } from './sampler.js';
+import { createModelCache, cachedFetch, loadCachedRuntime } from './model-cache.js';
 
 const SITE_BASE = new URL(import.meta.env.BASE_URL, self.location.origin);
 const MODEL_TIMEOUT_MS = 300_000;
@@ -8,6 +9,10 @@ const STEP_TIMEOUT_MS = 45_000;
 let active = null;
 let loaded = null;
 let cached = null;
+let runtimeReady = false;
+const modelCache = createModelCache({ onEvent: event => {
+  if (active && ['stored', 'hit', 'unavailable'].includes(event.type)) send('cache', active.id, { cacheState: event.type, message: event.message, source: event.source });
+} });
 
 const send = (type, id, detail = {}) => self.postMessage({ type, id, ...detail });
 const status = (id, message, detail = {}) => send('status', id, { message, ...detail });
@@ -39,8 +44,14 @@ async function fetchFile(url, job, label, asJson = false, expectedHash = null) {
   const timer = setTimeout(() => abort.abort(new Error(`${label} download timed out. Please retry.`)), MODEL_TIMEOUT_MS);
   try {
     if (job.cancelled) throw new GenerationCancelled();
-    const response = await fetch(url, { signal: abort.signal, cache: 'force-cache', credentials: 'omit' });
+    const response = await cachedFetch(url, { signal: abort.signal }, { cache: modelCache, onEvent: event => {
+      if (event.type === 'hit') status(job.id, `Loading ${label.toLowerCase()} from browser storage…`, { phase: 'cache' });
+      if (event.type === 'download') status(job.id, `Downloading ${label.toLowerCase()}…`, {
+        phase: 'download', downloadProgress: event.total ? event.loaded / event.total : null,
+      });
+    } });
     if (!response.ok) throw new Error(`${label} download failed (HTTP ${response.status}).`);
+    const fromStorage = response.headers.get('x-pocket-cache') !== 'network';
     if (asJson && !expectedHash) return await response.json();
     const total = Number(response.headers.get('content-length')) || 0;
     const chunks = [];
@@ -52,8 +63,8 @@ async function fetchFile(url, job, label, asJson = false, expectedHash = null) {
         if (done) break;
         chunks.push(value); received += value.byteLength;
         if (performance.now() - lastProgress > 200) {
-          status(job.id, `Downloading ${label.toLowerCase()}…`, {
-            phase: 'download', receivedBytes: received, totalBytes: total,
+          status(job.id, `Loading ${label.toLowerCase()}${fromStorage ? ' from browser storage' : ''}…`, {
+            phase: fromStorage ? 'cache' : 'download', receivedBytes: received, totalBytes: total,
             downloadProgress: total ? received / total : null,
           });
           lastProgress = performance.now();
@@ -70,9 +81,12 @@ async function fetchFile(url, job, label, asJson = false, expectedHash = null) {
       if (typeof expectedHash !== 'string' || !/^[a-f0-9]{64}$/i.test(expectedHash)) throw new Error(`${label} checksum in manifest is invalid.`);
       const digest = await crypto.subtle.digest('SHA-256', bytes);
       const actual = [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
-      if (actual !== expectedHash.toLowerCase()) throw new Error(`${label} checksum did not match the published release. Clear the browser cache and retry.`);
+      if (actual !== expectedHash.toLowerCase()) {
+        await modelCache.delete(url);
+        throw new Error(`${label} checksum did not match the published release. The invalid cached file was removed; please retry.`);
+      }
     }
-    status(job.id, `${label} downloaded.`, { phase: 'download', receivedBytes: received, totalBytes: total || received, downloadProgress: 1 });
+    status(job.id, `${label} ${fromStorage ? 'loaded from browser storage' : 'ready'}.`, { phase: fromStorage ? 'cache' : 'download', receivedBytes: received, totalBytes: total || received, downloadProgress: 1 });
     return asJson ? JSON.parse(new TextDecoder().decode(bytes)) : bytes;
   } catch (error) {
     if (job.cancelled) throw new GenerationCancelled();
@@ -153,7 +167,18 @@ async function initialize(manifestInput, backend, job) {
   // headers and still runs entirely inside this dedicated worker.
   ort.env.wasm.numThreads = 1;
   ort.env.wasm.proxy = false;
-  ort.env.wasm.wasmPaths = manifest.runtimeBaseUrl;
+  if (!runtimeReady) {
+    const abort = new AbortController();
+    job.aborts.add(abort);
+    const timer = setTimeout(() => abort.abort(new Error('Browser runtime download timed out. Please retry.')), MODEL_TIMEOUT_MS);
+    try {
+      const runtime = await loadCachedRuntime(manifest.runtimeBaseUrl, { cache: modelCache, signal: abort.signal,
+        onEvent: event => status(job.id, event.type === 'hit' ? 'Loading browser runtime from storage…' : 'Downloading browser runtime…',
+          { phase: event.type === 'hit' ? 'cache' : 'download', downloadProgress: event.total ? event.loaded / event.total : null }),
+      });
+      Object.assign(ort.env.wasm, runtime); runtimeReady = true;
+    } finally { clearTimeout(timer); job.aborts.delete(abort); }
+  }
   let actualBackend = backend === 'auto' ? 'webgpu' : backend;
   let session;
   try { session = await createSession(cached.bytes, actualBackend, job); }

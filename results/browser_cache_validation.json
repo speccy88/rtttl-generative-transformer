@@ -1,0 +1,86 @@
+{
+  "date": "2026-10-03",
+  "scope": "Local Apple M2 production-build verification with Playwright 1.63.0. Real models run on the Mac, with no remote inference. Browser engine coverage does not establish compatibility with every device.",
+  "cache": {
+    "name": "pocket-composer-models-v1",
+    "primary": "Cache API",
+    "fallback": "IndexedDB",
+    "session_fallback": "Bounded memory for files up to 32 MiB, 96 MiB total",
+    "keys": "Original URLs with immutable model revision; runtime URLs include the locked build revision.",
+    "legacy_cache": "Existing pinned Transformers.js files reused in place."
+  },
+  "checks": {
+    "javascript_unit_tests": {
+      "passed": 27
+    },
+    "ordinary_production_suite": {
+      "passed": 22,
+      "optional_real_tests_skipped": 6,
+      "failed": 0,
+      "scope": "16 cache cases and 6 existing studio cases; real downloads explicitly opted in separately."
+    },
+    "cache_regression": {
+      "passed": 16,
+      "browsers": [
+        "Chromium",
+        "Firefox",
+        "WebKit"
+      ],
+      "fixture_bytes": 262144,
+      "fixture_http_cache": "no-store, with cross-origin redirect",
+      "verified": [
+        "Exact SHA-256 after cache reads",
+        "Reuse in new workers, after reload and after normal browser restart",
+        "IndexedDB fallback when Cache Storage is unavailable",
+        "Legacy Transformers.js cache reuse without duplication",
+        "Generation bytes remain usable when storage is full or blocked",
+        "Aborted partial downloads are never cache hits",
+        "Primed page storage remains usable by workers in an ephemeral WebKit session"
+      ]
+    },
+    "real_melody_repeated_generation": {
+      "passed": true,
+      "backend": "wasm",
+      "same_page_additional_model_requests": 0,
+      "reload_additional_model_or_runtime_requests": 0,
+      "model_and_runtime_requests_blocked_after_reload": true
+    },
+    "real_portable_melody_inference": {
+      "passed": 3,
+      "browsers": [
+        "Chromium 153",
+        "Firefox 155",
+        "WebKit 26.6"
+      ],
+      "profile": "Normal persistent browser profiles, mobile viewport; WebKit mobile/touch mode",
+      "backend": "wasm",
+      "model_bytes": 8784194,
+      "events_per_song": 24,
+      "cold_model_requests_per_browser": 2,
+      "cold_runtime_requests_per_browser": 2,
+      "reload_model_requests_per_browser": 0,
+      "reload_runtime_requests_per_browser": 0,
+      "blocked_request_attempts_per_browser": 0,
+      "same_seed_same_rtttl_after_reload": true,
+      "browser_errors": []
+    },
+    "real_optional_title_inference": {
+      "passed": true,
+      "browser": "Chromium, normal persistent profile",
+      "model": "onnx-community/Qwen2.5-0.5B-Instruct",
+      "revision": "cc5cc01a65cc3ff17bdb73a7de33d879f62599b0",
+      "dtype": "q4",
+      "cached_weight_bytes": 786156820,
+      "reload_additional_model_or_runtime_requests": 0,
+      "model_and_runtime_requests_blocked_after_reload": true,
+      "cache_loading_message_verified": true
+    }
+  },
+  "limitations": [
+    "Physical iPhone Safari was not tested; WebKit engine and mobile layout were tested on the Mac.",
+    "The real optional large title-model reload check ran in Chromium; the storage regression and real melody/runtime checks ran in all three engines.",
+    "Private browsing, full storage, clearing website data and browser eviction can require downloads again. A storage warning is shown when persistence fails.",
+    "The site shell still requires network access after reload; this is model-file caching rather than a fully offline website."
+  ],
+  "local_evidence_directory": "evidence/browser_cache_v1/"
+}

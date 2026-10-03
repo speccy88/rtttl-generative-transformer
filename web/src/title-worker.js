@@ -1,4 +1,5 @@
 import { TITLE_MODEL, TITLE_REVISION, describeMelody, applyTitle } from './title-utils.js';
+import { createModelCache, runtimePaths } from './model-cache.js';
 
 let generator = null;
 let backend = null;
@@ -14,17 +15,30 @@ self.addEventListener('message', async ({ data }) => {
     if (!generator) {
       progress({ message: 'Preparing the optional title model…' });
       const { pipeline, env } = await import('@huggingface/transformers');
+      const cachedFiles = new Set();
+      const titleCache = createModelCache({ onEvent: event => {
+        if (event.type === 'hit') cachedFiles.add(new URL(event.url).pathname.split('/').at(-1));
+        if (['stored', 'hit', 'unavailable'].includes(event.type)) self.postMessage({ type: 'cache', id, cacheState: event.type, message: event.message, source: event.source });
+      } });
       env.allowLocalModels = false;
-      env.useBrowserCache = true;
+      // Transformers.js 4.3's pipeline file-discovery calls omit revision.
+      // This dedicated worker uses one pinned model, so pin the URL template
+      // too: discovery and actual loading now share the same cache keys.
+      env.remotePathTemplate = `{model}/resolve/${TITLE_REVISION}/`;
+      env.useCustomCache = true;
+      env.customCache = titleCache;
+      env.useBrowserCache = false;
+      env.useWasmCache = true;
       env.backends.onnx.wasm.numThreads = 1;
       env.backends.onnx.wasm.proxy = false;
-      env.backends.onnx.wasm.wasmPaths = runtimeBaseUrl;
+      env.backends.onnx.wasm.wasmPaths = runtimePaths(runtimeBaseUrl);
       const adapter = await navigator.gpu?.requestAdapter().catch(() => null);
       backend = adapter ? 'webgpu' : 'wasm';
       const load = () => pipeline('text-generation', TITLE_MODEL, {
         revision: TITLE_REVISION, dtype: 'q4', device: backend,
         progress_callback: event => {
-          if (event.status === 'progress') progress({ message: 'Downloading the optional title model…',
+          if (event.status === 'progress') progress({ message: cachedFiles.has(event.file?.split('/').at(-1))
+            ? 'Loading the optional title model from browser storage…' : 'Downloading the optional title model…',
             downloadProgress: event.progress, file: event.file });
           if (event.status === 'ready') progress({ message: `Title model ready · ${backend === 'webgpu' ? 'WebGPU' : 'CPU'}` });
         },

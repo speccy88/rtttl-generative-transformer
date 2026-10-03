@@ -34,6 +34,7 @@ export function titleSongs(songs, { onProgress = () => {}, signal } = {}) {
     function receive({ data }) {
       if (data.id !== id) return;
       if (data.type === 'progress') onProgress(data);
+      if (data.type === 'cache') onProgress({ ...data, cacheEvent: true });
       if (data.type === 'done') { cleanup(); resolve(data.songs); }
       if (data.type === 'error') failed(data);
     }

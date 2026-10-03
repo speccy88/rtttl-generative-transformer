@@ -27,6 +27,7 @@ pyproject.toml
 requirements-naming.txt
 requirements-tensorboard.txt
 requirements.txt
+results/browser_cache_validation.json
 results/browser_validation.json
 results/experiment.json
 results/mps_finetune.json
@@ -127,6 +128,8 @@ web/src/audio.js
 web/src/audio.test.js
 web/src/main.js
 web/src/melody-worker.js
+web/src/model-cache.js
+web/src/model-cache.test.js
 web/src/mp3-worker.js
 web/src/profiles.js
 web/src/rtttl.js
@@ -137,5 +140,8 @@ web/src/title-utils.js
 web/src/title-utils.test.js
 web/src/title-worker.js
 web/src/titles.js
+web/tests/cache.spec.js
+web/tests/model-reuse.spec.js
+web/tests/portable-model-cache.spec.js
 web/tests/studio.spec.js
 web/vite.config.js

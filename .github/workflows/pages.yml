@@ -47,7 +47,7 @@ jobs:
         env:
           VITE_BASE_PATH: ${{ steps.pages.outputs.base_path }}/
       - name: Install browser for UI checks
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox webkit
       - name: Test static player and downloads
         run: npm run test:e2e
         env:

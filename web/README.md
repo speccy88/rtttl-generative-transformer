@@ -22,10 +22,17 @@ npm run preview
 ```
 
 For production UI checks, install Playwright's browser once with
-`npx playwright install chromium`, then run `npm run test:e2e` after building.
+`npx playwright install chromium firefox webkit`, then run `npm run test:e2e` after building.
 The ordinary suite blocks external downloads. To explicitly test the real
 melody model and your available GPU, use
 `PLAYWRIGHT_REAL_MODEL=1 npm run test:e2e -- --grep 'optional real'`.
+
+The cache regression suite checks Chromium, Firefox and WebKit using normal
+browser profiles, including page reloads and browser restarts. The separate
+optional title check downloads the real title model once:
+`PLAYWRIGHT_REAL_TITLES=1 npm run test:e2e -- --grep 'optional real title model'`.
+To verify actual CPU inference and cache reuse in all three engines, use
+`PLAYWRIGHT_REAL_PORTABLE=1 npm run test:e2e -- --grep 'optional portable'`.
 
 The production preview uses port `4173` and the same repository path. `npm test` covers the JavaScript music and naming helpers; it is not proof of WebGPU compatibility on every device. Browser inference, downloads, cancellation, audio playback and optional naming need browser checks as well. The [aggregate release checks](../results/browser_validation.json) record the tested scope; detailed local evidence lives in `../evidence/web_pages_v1/` when available.
 
@@ -35,7 +42,15 @@ The melody model is an approximately **8.8 MB ONNX download**, plus its vocabula
 
 Five handcrafted melody guides—pop hook, chiptune, cinematic, dance and lullaby—adjust sampling. Mixed mode varies guides, tempos and keys. Custom tempo, key, length and sampling controls are available. The guides describe melodic preferences; the model has not been trained on labeled genres. Playback offers sine, triangle and square sounds.
 
-Automatic titles are **off by default**. Enabling them starts an additional download of about **800 MB** for the quantized `onnx-community/Qwen2.5-0.5B-Instruct` model when the generated melodies are ready. Naming runs locally through Transformers.js, tries WebGPU, and can use the CPU if GPU loading fails. Cancelling or failing naming keeps the melodies available. Browser caches may avoid repeat downloads, but caches can be cleared or evicted by the browser.
+Automatic titles are **off by default**. Enabling them starts an additional download of about **800 MB** for the quantized `onnx-community/Qwen2.5-0.5B-Instruct` model when the generated melodies are ready. Naming runs locally through Transformers.js, tries WebGPU, and can use the CPU if GPU loading fails. Cancelling or failing naming keeps the melodies available.
+
+After a complete first download, melody weights, vocabulary, title model files and both browser runtimes are saved explicitly using the browser's Cache API. IndexedDB provides a fallback when Cache Storage is unavailable. Generation reuses loaded models within a tab and saved files after page reloads and normal browser restarts, with no model network request on a cache hit. Existing files in the earlier Transformers.js cache are reused too. The interface distinguishes reading saved files from downloading them and reports when browser storage is unavailable or full.
+
+Model cache keys include the immutable model revision; runtime keys include the locked build revision. Cancelled partial downloads and unsuccessful HTTP responses are never reused. Cache writes failing due to quota or privacy settings do not prevent generation; a bounded memory fallback retains smaller files for the open tab without retaining another complete title model.
+
+Website storage is still managed by the browser: clearing site data, private browsing and storage eviction can require another download. Safari uses its normal website-data storage for these files; adding the page to the Home Screen can improve persistence eligibility. See [WebKit's storage policy](https://webkit.org/blog/14403/updates-to-storage-policy/). This is model-file caching; the site shell still needs to be reachable after a reload.
+
+The [cache validation record](../results/browser_cache_validation.json) covers Chromium, Firefox and WebKit persistence, IndexedDB fallback, and real inference with model networking blocked after reload. WebKit runs at a mobile viewport; this does not replace testing on a physical iPhone.
 
 Each visitor downloads and runs models on their own device. This static app has no hosted inference endpoint, API key, account requirement, or analytics code. Generated notes, imported RTTTL and title prompts are processed in the browser rather than uploaded for inference. GitHub Pages and Hugging Face receive the ordinary requests needed to serve the site, runtime and model files.
 

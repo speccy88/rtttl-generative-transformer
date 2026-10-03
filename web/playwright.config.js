@@ -4,7 +4,7 @@ import { defineConfig } from '@playwright/test';
 // `npm run build` must precede this suite, locally and in CI.
 const siteOrigin = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:4173';
 const sitePath = process.env.VITE_BASE_PATH || '/rtttl-generative-transformer/';
-const realModel = process.env.PLAYWRIGHT_REAL_MODEL === '1';
+const realModel = process.env.PLAYWRIGHT_REAL_MODEL === '1' || process.env.PLAYWRIGHT_REAL_TITLES === '1';
 
 export default defineConfig({
   testDir: './tests',

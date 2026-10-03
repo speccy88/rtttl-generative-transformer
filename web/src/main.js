@@ -1,6 +1,9 @@
 import './styles.css';
 import { parseRtttl } from './rtttl.js';
 import { createPlayer, renderWav, renderMp3 } from './audio.js';
+import { primeBrowserCache } from './model-cache.js';
+
+const browserCacheReady = primeBrowserCache().catch(() => {});
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -279,6 +282,19 @@ function setProgress(message, percent = null) {
   $('#generation-bar').parentElement.classList.toggle('is-indeterminate', !determinate);
   $('#generation-bar').style.width = determinate ? `${Math.min(100, Math.max(0, percent))}%` : '35%';
 }
+
+function updateCacheNotice(event) {
+  const notice = $('#cache-notice');
+  if (!notice) return;
+  if (event.cacheState === 'unavailable') state.cacheStorageWarning = true;
+  else if (state.cacheStorageWarning) return;
+  notice.hidden = false;
+  notice.textContent = event.cacheState === 'unavailable' ? event.message
+    : event.source === 'memory' ? 'Reusing model files already loaded in this tab.'
+    : event.cacheState === 'hit' ? 'Reusing model files saved in this browser.'
+    : 'Model files saved in this browser for your next visit.';
+  notice.dataset.state = event.cacheState === 'unavailable' ? 'temporary' : 'saved';
+}
 function setBackend(backend, fallbackReason) {
   state.backend = backend;
   const cpu = backend === 'wasm' || backend === 'cpu';
@@ -329,6 +345,7 @@ async function nameGeneratedSongs() {
       signal: state.titleController.signal,
       onProgress(progress) {
         if (state.cancelled) return;
+        if (progress.cacheEvent) { updateCacheNotice(progress); return; }
         setProgress(progress.message || 'Finding a name for your melody…', progress.downloadProgress ?? null);
         if (progress.title && progress.songId !== undefined) {
           const match = state.songs.find(song => String(song.id) === String(progress.songId));
@@ -372,7 +389,8 @@ function getWorker() {
   worker.addEventListener('message', ({ data }) => {
     if (!state.busy || (data.id !== undefined && String(data.id) !== String(state.jobId))) return;
     try {
-      if (data.type === 'status') {
+      if (data.type === 'cache') updateCacheNotice(data);
+      else if (data.type === 'status') {
         if (data.backend) setBackend(data.backend, data.fallbackReason);
         if (!state.cancelled) setProgress(data.message || 'Preparing the melody model…', typeof data.downloadProgress === 'number' ? data.downloadProgress * 100 : null);
       } else if (data.type === 'progress') {
@@ -416,6 +434,7 @@ async function generate(event) {
   setBusy(true); setProgress('Getting the local melody model ready…');
   try {
     const modelManifest = await loadManifest();
+    await browserCacheReady;
     if (state.cancelled) { await finishGeneration({ cancelled: true, songs: [] }); return; }
     getWorker().postMessage({ type: 'generate', id: state.jobId, options, modelManifest });
   } catch (error) {
