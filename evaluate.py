@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import torch
 
-from generate import add_sampling_arguments, generate_batch, new_output_dir, resolve_device, training_reference, write_generation_outputs
+from generate import add_naming_arguments, add_sampling_arguments, apply_optional_naming, generate_batch, new_output_dir, resolve_device, sampling_kwargs, training_reference, write_generation_outputs
 from rtttl_gen.audio import create_listening_batch
 from rtttl_gen.dataset import load_songs
 from rtttl_gen.evaluation import compare_distributions, predictive_metrics
@@ -35,6 +35,7 @@ def main() -> None:
     parser.add_argument("--audio", action="store_true")
     parser.add_argument("--threads", type=int, default=2)
     add_sampling_arguments(parser)
+    add_naming_arguments(parser)
     args = parser.parse_args()
     if args.max_eval_songs is not None and args.max_eval_songs < 1:
         parser.error("--max-eval-songs must be positive")
@@ -52,7 +53,10 @@ def main() -> None:
     output = new_output_dir(args.output, parent="evaluations")
     started = time.perf_counter()
     predictive = {name: predictive_metrics(model, tokenizer, songs, context, device=device, batch_size=args.batch_size) for name, songs in (("validation", validation), ("test", test))}
-    records, songs = generate_batch(model, tokenizer, train_songs, train_ids, **{key: getattr(args, key) for key in ("num_songs", "temperature", "top_k", "top_p", "min_events", "max_events", "bpm", "seed")}, device=device)
+    records, songs = generate_batch(model, tokenizer, train_songs, train_ids, **sampling_kwargs(args), device=device)
+    if args.name_songs:
+        write_generation_outputs(output, records, songs)
+    records, songs, naming = apply_optional_naming(records, songs, args)
     generated = write_generation_outputs(output, records, songs)
     distribution = compare_distributions(test, songs, output / "plots")
     if args.audio:
@@ -62,6 +66,7 @@ def main() -> None:
     # The model's checkpoint contains measured training time; no speed estimate.
     metrics = {"status": "executed", "model_type": model_type, "parameters": parameters, "trainable_parameters": trainable, "vocabulary_size": tokenizer.vocab_size, "context_length": context, "predictive": predictive, "generation": generated, "distributions": distribution, "training_seconds": checkpoint.get("training_seconds"), "evaluation_seconds": time.perf_counter() - started, "evaluation_scope": "diagnostic subset" if args.max_eval_songs else "full provided validation/test splits", "available_split_songs": available_counts, "checkpoint": str(Path(args.checkpoint).resolve()), "training_reference_songs": len(train_songs), "arguments": vars(args), "runtime": {"device": device, "gpu": torch.cuda.get_device_name(torch.device(device)) if device.startswith("cuda") else None, "torch": torch.__version__, "python": platform.python_version(), "platform": platform.platform(), "utc": datetime.now(timezone.utc).isoformat()}}
     metrics["dataset_sha256_verified"] = checkpoint["dataset_sha256"]
+    metrics["naming"] = naming
     (output / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     row = {"model": model_type, "parameters": parameters, "test_cross_entropy_nats": predictive["test"]["cross_entropy_nats"], "test_perplexity": predictive["test"]["perplexity"], "rtttl_validity_pct": generated["rtttl_validity_pct"], "unique_generations_pct": generated["unique_generations_pct"], "exact_memorization_pct": generated["exact_training_match_pct"], "training_seconds": checkpoint.get("training_seconds"), "evaluation_scope": metrics["evaluation_scope"], "test_songs": len(test), "generated_songs": args.num_songs, "checkpoint": args.checkpoint}
     with (output / "comparison_row.csv").open("w", newline="", encoding="utf-8") as stream:

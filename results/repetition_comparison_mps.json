@@ -1,0 +1,240 @@
+{
+  "status": "executed",
+  "protocol": "Same checkpoint and per-song seeds; all attempts retained; no rejection or cherry-picking; no weight updates.",
+  "settings": {
+    "num_songs": 100,
+    "seed": 1000,
+    "bpm": 120,
+    "min_events": 16,
+    "max_events": 64,
+    "temperature": 0.8,
+    "top_k": 20,
+    "top_p": 0.95,
+    "device": "mps"
+  },
+  "controls": {
+    "legacy": {
+      "repetition_penalty": 1.0,
+      "repetition_window": 16,
+      "max_pitch_run": 0,
+      "max_motif_repeats": 0,
+      "max_motif_length": 16
+    },
+    "guarded": {
+      "repetition_penalty": 1.2,
+      "repetition_window": 16,
+      "max_pitch_run": 4,
+      "max_motif_repeats": 3,
+      "max_motif_length": 16
+    }
+  },
+  "checkpoint_sha256": "86d02ff8fe9dfe9dc4f0a2af2750012fa1d3c9321805dbb33a4a0599c48b3c05",
+  "dataset_sha256": {
+    "train.jsonl": "0b8dd44e412c9569ef43c9b79dad651b2a0c6af39b2d9be004abd025ff472b03",
+    "val.jsonl": "b1b57c86fc45e040695ce4da449b7a2eaa1dbcf2a7cdde7e4696efa2325801af",
+    "test.jsonl": "9d7be7ea7e2d41431d492d1db2b96df1be30de5c38271b34eb1ebed118e25edc",
+    "tokenizer.json": "0d294b28e14689544db7ab74f690e432f5dd02bb7dbcfc620b0f5937fe31252b"
+  },
+  "runtime": {
+    "device": "mps",
+    "torch": "2.6.0",
+    "python": "3.11.15"
+  },
+  "arms": {
+    "legacy": {
+      "metrics": {
+        "attempted_songs": 100,
+        "valid_songs": 100,
+        "rtttl_validity_pct": 100.0,
+        "unique_generated_sequences": 100,
+        "unique_generations_pct": 100.0,
+        "duplicate_generation_pct": 0.0,
+        "exact_training_match_pct": 0.0,
+        "transposition_family_match_pct": 0.0,
+        "nearest_similarity": {
+          "count": 100,
+          "min": 0.109951,
+          "mean": 0.3314225900000001,
+          "median": 0.260105,
+          "max": 1.0
+        },
+        "pitch_entropy_bits": 4.164374515659586,
+        "event_entropy_bits": 5.662038272306374,
+        "degenerate_generation_pct": 55.0,
+        "forced_eos_pct": 61.0,
+        "similarity_labels": {
+          "low similarity": 78,
+          "near match": 6,
+          "moderate similarity": 15,
+          "high similarity": 1
+        },
+        "repetition": {
+          "longest_pitch_run": {
+            "count": 100,
+            "min": 1,
+            "mean": 11.31,
+            "median": 3.0,
+            "max": 64
+          },
+          "longest_event_run": {
+            "count": 100,
+            "min": 1,
+            "mean": 8.79,
+            "median": 3.0,
+            "max": 64
+          },
+          "unique_pitches": {
+            "count": 100,
+            "min": 1,
+            "mean": 3.88,
+            "median": 4.0,
+            "max": 10
+          },
+          "max_pitch_motif_repeats": {
+            "count": 100,
+            "min": 0,
+            "mean": 5.19,
+            "median": 2.0,
+            "max": 32
+          },
+          "repeated_pitch_ngram_fraction": {
+            "count": 100,
+            "min": 0.125,
+            "mean": 0.6718498769455428,
+            "median": 0.680327868852459,
+            "max": 0.9836065573770492
+          }
+        },
+        "denominator_note": "Validity/forced EOS use all attempts; uniqueness, memorization and degeneracy use valid songs. Repetition summaries use supplied valid decoded songs. Exact diversity identity includes BPM and resolved events, excludes title.",
+        "repetition_interventions": {
+          "penalty_steps": {
+            "count": 100,
+            "min": 0,
+            "mean": 0.0,
+            "median": 0.0,
+            "max": 0
+          },
+          "pitch_run_blocks": {
+            "count": 100,
+            "min": 0,
+            "mean": 0.0,
+            "median": 0.0,
+            "max": 0
+          },
+          "motif_blocks": {
+            "count": 100,
+            "min": 0,
+            "mean": 0.0,
+            "median": 0.0,
+            "max": 0
+          },
+          "records_with_counters": 100,
+          "songs_with_hard_blocks": 0,
+          "definition": "Counters describe filtering steps, not whether the sampled token changed; summaries include all attempts with each recorded counter."
+        }
+      },
+      "seconds": 43.768947583041154
+    },
+    "guarded": {
+      "metrics": {
+        "attempted_songs": 100,
+        "valid_songs": 100,
+        "rtttl_validity_pct": 100.0,
+        "unique_generated_sequences": 100,
+        "unique_generations_pct": 100.0,
+        "duplicate_generation_pct": 0.0,
+        "exact_training_match_pct": 0.0,
+        "transposition_family_match_pct": 0.0,
+        "nearest_similarity": {
+          "count": 100,
+          "min": 0.065048,
+          "mean": 0.20267479000000005,
+          "median": 0.200285,
+          "max": 0.346154
+        },
+        "pitch_entropy_bits": 4.717749588339571,
+        "event_entropy_bits": 6.318736862568421,
+        "degenerate_generation_pct": 0.0,
+        "forced_eos_pct": 6.0,
+        "similarity_labels": {
+          "low similarity": 100
+        },
+        "repetition": {
+          "longest_pitch_run": {
+            "count": 100,
+            "min": 1,
+            "mean": 2.2,
+            "median": 2.0,
+            "max": 4
+          },
+          "longest_event_run": {
+            "count": 100,
+            "min": 1,
+            "mean": 2.02,
+            "median": 2.0,
+            "max": 4
+          },
+          "unique_pitches": {
+            "count": 100,
+            "min": 4,
+            "mean": 9.49,
+            "median": 9.0,
+            "max": 21
+          },
+          "max_pitch_motif_repeats": {
+            "count": 100,
+            "min": 0,
+            "mean": 1.57,
+            "median": 2.0,
+            "max": 3
+          },
+          "repeated_pitch_ngram_fraction": {
+            "count": 100,
+            "min": 0.0,
+            "mean": 0.19251502941605636,
+            "median": 0.17777777777777778,
+            "max": 0.55
+          }
+        },
+        "denominator_note": "Validity/forced EOS use all attempts; uniqueness, memorization and degeneracy use valid songs. Repetition summaries use supplied valid decoded songs. Exact diversity identity includes BPM and resolved events, excludes title.",
+        "repetition_interventions": {
+          "penalty_steps": {
+            "count": 100,
+            "min": 17,
+            "mean": 39.67,
+            "median": 38.0,
+            "max": 63
+          },
+          "pitch_run_blocks": {
+            "count": 100,
+            "min": 0,
+            "mean": 0.15,
+            "median": 0.0,
+            "max": 2
+          },
+          "motif_blocks": {
+            "count": 100,
+            "min": 0,
+            "mean": 0.24,
+            "median": 0.0,
+            "max": 3
+          },
+          "records_with_counters": 100,
+          "songs_with_hard_blocks": 27,
+          "definition": "Counters describe filtering steps, not whether the sampled token changed; summaries include all attempts with each recorded counter."
+        }
+      },
+      "seconds": 29.31542458408512
+    }
+  },
+  "metric_definition": "Expanded diagnostics applied to both arms; see repetition_statistics and degeneracy_flags. Historical 19%/30% figures use older checks.",
+  "hardware": {
+    "chip": "Apple M2",
+    "unified_memory_bytes": 17179869184
+  },
+  "validation": {
+    "original_user_batch_exactly_reproduced_with_controls_disabled": true,
+    "tests_passed": 177,
+    "human_musicality_evaluation": "not performed"
+  }
+}

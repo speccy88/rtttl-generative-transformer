@@ -35,6 +35,47 @@ def song_key(song: Song) -> tuple:
     return (song.bpm, tuple(event_key(e) for e in song.events))
 
 
+def _longest_run(values: Sequence[Any]) -> int:
+    longest = current = 0
+    for index, value in enumerate(values):
+        current = current + 1 if index and value == values[index - 1] else 1
+        longest = max(longest, current)
+    return longest
+
+
+def repetition_statistics(song: Song) -> dict[str, int | float]:
+    """Local repetition diagnostics, including loops after a varied beginning.
+
+    Pitch sequences preserve rests as ``None`` and ignore duration/dots. Unique
+    pitches excludes rests. Motif repeats count complete contiguous copies
+    (including the first) for nonconstant periods 2..16; zero means no motif
+    repeated twice. The four-gram fraction counts overlapping occurrences after
+    each distinct four-gram's first occurrence, divided by all four-grams.
+    These describe repetition, not musical quality or originality.
+    """
+    pitches = [event.pitch for event in song.events]
+    keys = [event_key(event) for event in song.events]
+    motif_repeats = 0
+    for period in range(2, min(16, len(pitches) // 2) + 1):
+        matched = 0
+        for index in range(period, len(pitches)):
+            matched = matched + 1 if pitches[index] == pitches[index - period] else 0
+            copies = (matched + period) // period
+            if copies >= 2 and copies > motif_repeats:
+                # A constant sequence is a pitch run, not a multi-note motif.
+                motif = pitches[index - period + 1:index + 1]
+                if len(set(motif)) > 1:
+                    motif_repeats = copies
+    ngrams = [tuple(pitches[index:index + 4]) for index in range(max(0, len(pitches) - 3))]
+    return {
+        "longest_pitch_run": _longest_run(pitches),
+        "longest_event_run": _longest_run(keys),
+        "unique_pitches": len({pitch for pitch in pitches if pitch is not None}),
+        "max_pitch_motif_repeats": motif_repeats,
+        "repeated_pitch_ngram_fraction": (len(ngrams) - len(set(ngrams))) / len(ngrams) if ngrams else 0.0,
+    }
+
+
 def degeneracy_flags(song: Song, min_events: int = 1) -> list[str]:
     """Conservative listening/review flags; these are not syntax errors."""
     flags: list[str] = []
@@ -53,6 +94,11 @@ def degeneracy_flags(song: Song, min_events: int = 1) -> list[str]:
             if sum(keys[i] == keys[i % period] for i in range(len(keys))) / len(keys) >= 0.9:
                 flags.append("short_repeated_motif")
                 break
+    repetition = repetition_statistics(song)
+    if repetition["longest_pitch_run"] >= 8:
+        flags.append("local_pitch_run_at_least_8")
+    if repetition["max_pitch_motif_repeats"] >= 4:
+        flags.append("repeated_pitch_motif_at_least_4")
     return flags
 
 
@@ -198,9 +244,12 @@ def generated_metrics(records: Sequence[dict], songs: Sequence[Song]) -> dict[st
     similarities = [r["similarity"]["score"] for r in records if r.get("valid") and isinstance(r.get("similarity", {}).get("score"), (int, float))]
     exact = sum(bool(r.get("similarity", {}).get("exact_event_match")) for r in records if r.get("valid"))
     transposed = sum(bool(r.get("similarity", {}).get("transposition_match")) for r in records if r.get("valid"))
+    repetition = [repetition_statistics(song) for song in songs]
+    repetition_fields = ("longest_pitch_run", "longest_event_run", "unique_pitches", "max_pitch_motif_repeats", "repeated_pitch_ngram_fraction")
+    interventions = [r["repetition_interventions"] for r in records if isinstance(r.get("repetition_interventions"), dict)]
     def percent(n: float, d: float) -> float | None:
         return 100 * n / d if d else None
-    return {
+    result = {
         "attempted_songs": count,
         "valid_songs": valid_count,
         "rtttl_validity_pct": percent(valid_count, count),
@@ -215,8 +264,20 @@ def generated_metrics(records: Sequence[dict], songs: Sequence[Song]) -> dict[st
         "degenerate_generation_pct": percent(sum(bool(r.get("degeneracy_flags")) for r in records if r.get("valid")), valid_count),
         "forced_eos_pct": percent(sum(bool(r.get("forced_eos")) for r in records), count),
         "similarity_labels": dict(Counter(r.get("similarity", {}).get("label", "not evaluated") for r in records)),
-        "denominator_note": "Validity/forced EOS use all attempts; uniqueness, memorization and degeneracy use valid songs. Exact diversity identity includes BPM and resolved events, excludes title.",
+        "repetition": {key: _summary([stats[key] for stats in repetition]) for key in repetition_fields},
+        "denominator_note": "Validity/forced EOS use all attempts; uniqueness, memorization and degeneracy use valid songs. Repetition summaries use supplied valid decoded songs. Exact diversity identity includes BPM and resolved events, excludes title.",
     }
+    if interventions:
+        result["repetition_interventions"] = {
+            key: _summary([item[key] for item in interventions if isinstance(item.get(key), (int, float))])
+            for key in ("penalty_steps", "pitch_run_blocks", "motif_blocks")
+        }
+        result["repetition_interventions"].update({
+            "records_with_counters": len(interventions),
+            "songs_with_hard_blocks": sum(any(isinstance(item.get(key), (int, float)) and item[key] > 0 for key in ("pitch_run_blocks", "motif_blocks")) for item in interventions),
+            "definition": "Counters describe filtering steps, not whether the sampled token changed; summaries include all attempts with each recorded counter.",
+        })
+    return result
 
 
 def compare_distributions(real_songs: Sequence[Song], generated_songs: Sequence[Song], output_dir: Path | str) -> dict[str, Any]:

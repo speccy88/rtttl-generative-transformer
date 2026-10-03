@@ -1,0 +1,258 @@
+{
+  "status": "executed",
+  "hardware": "Apple M2",
+  "device": "mps",
+  "torch_version": "2.6.0",
+  "python_version": "3.11.15",
+  "checkpoint_sha256": "cf6b1b31363ba6dcc1b835b4327489700604c542633953621359ede43d9ce55d",
+  "dataset_sha256": {
+    "train.jsonl": "0b8dd44e412c9569ef43c9b79dad651b2a0c6af39b2d9be004abd025ff472b03",
+    "val.jsonl": "b1b57c86fc45e040695ce4da449b7a2eaa1dbcf2a7cdde7e4696efa2325801af",
+    "test.jsonl": "9d7be7ea7e2d41431d492d1db2b96df1be30de5c38271b34eb1ebed118e25edc",
+    "tokenizer.json": "0d294b28e14689544db7ab74f690e432f5dd02bb7dbcfc620b0f5937fe31252b"
+  },
+  "protocol": "25 consecutive attempts; 5 per handcrafted profile, seed4000, 16-48events; no filtering or retraining; local naming using cached weights.",
+  "seconds_including_naming_and_audio": 37.01932612503879,
+  "sampling": {
+    "num_songs": 25,
+    "temperature": 0.8,
+    "top_k": 20,
+    "top_p": 0.95,
+    "min_events": 16,
+    "max_events": 48,
+    "bpm": null,
+    "bpm_range": null,
+    "seed": 4000,
+    "repetition_penalty": 1.2,
+    "repetition_window": 16,
+    "max_pitch_run": 4,
+    "max_motif_repeats": 3,
+    "max_motif_length": 16,
+    "profile": "mixed",
+    "tonic": null,
+    "mode": null
+  },
+  "songs": 25,
+  "bpm_min": 66,
+  "bpm_max": 174,
+  "distinct_bpms": 22,
+  "distinct_tonics": 12,
+  "by_profile": {
+    "pop-hook": {
+      "songs": 5,
+      "allowed_bpm_range": [
+        88,
+        132
+      ],
+      "observed_bpms": [
+        91,
+        93,
+        106,
+        114,
+        120
+      ],
+      "mean_event_beats": 0.6986,
+      "mean_notes_per_second": 3.2874,
+      "mean_rest_fraction": 0.0
+    },
+    "chiptune": {
+      "songs": 5,
+      "allowed_bpm_range": [
+        120,
+        180
+      ],
+      "observed_bpms": [
+        126,
+        134,
+        137,
+        167,
+        174
+      ],
+      "mean_event_beats": 0.8258,
+      "mean_notes_per_second": 3.8272,
+      "mean_rest_fraction": 0.0
+    },
+    "cinematic": {
+      "songs": 5,
+      "allowed_bpm_range": [
+        60,
+        104
+      ],
+      "observed_bpms": [
+        66,
+        77,
+        88,
+        92,
+        93
+      ],
+      "mean_event_beats": 1.5936,
+      "mean_notes_per_second": 0.9816,
+      "mean_rest_fraction": 0.0124
+    },
+    "dance": {
+      "songs": 5,
+      "allowed_bpm_range": [
+        118,
+        150
+      ],
+      "observed_bpms": [
+        123,
+        132,
+        134,
+        138,
+        142
+      ],
+      "mean_event_beats": 0.6564,
+      "mean_notes_per_second": 3.8548,
+      "mean_rest_fraction": 0.0
+    },
+    "lullaby": {
+      "songs": 5,
+      "allowed_bpm_range": [
+        60,
+        84
+      ],
+      "observed_bpms": [
+        66,
+        72,
+        75,
+        82,
+        83
+      ],
+      "mean_event_beats": 1.05,
+      "mean_notes_per_second": 2.1388000000000003,
+      "mean_rest_fraction": 0.0
+    }
+  },
+  "generation_metrics": {
+    "attempted_songs": 25,
+    "valid_songs": 25,
+    "rtttl_validity_pct": 100.0,
+    "unique_generated_sequences": 25,
+    "unique_generations_pct": 100.0,
+    "duplicate_generation_pct": 0.0,
+    "exact_training_match_pct": 0.0,
+    "transposition_family_match_pct": 0.0,
+    "nearest_similarity": {
+      "count": 25,
+      "min": 0.07326,
+      "mean": 0.23980240000000003,
+      "median": 0.25625,
+      "max": 0.392857
+    },
+    "pitch_entropy_bits": 4.736954850937702,
+    "event_entropy_bits": 6.594375825056714,
+    "degenerate_generation_pct": 0.0,
+    "forced_eos_pct": 16.0,
+    "similarity_labels": {
+      "low similarity": 25
+    },
+    "repetition": {
+      "longest_pitch_run": {
+        "count": 25,
+        "min": 1,
+        "mean": 2.56,
+        "median": 2.0,
+        "max": 4
+      },
+      "longest_event_run": {
+        "count": 25,
+        "min": 1,
+        "mean": 2.52,
+        "median": 2.0,
+        "max": 4
+      },
+      "unique_pitches": {
+        "count": 25,
+        "min": 5,
+        "mean": 10.52,
+        "median": 10.0,
+        "max": 17
+      },
+      "max_pitch_motif_repeats": {
+        "count": 25,
+        "min": 0,
+        "mean": 1.8,
+        "median": 2.0,
+        "max": 3
+      },
+      "repeated_pitch_ngram_fraction": {
+        "count": 25,
+        "min": 0.0,
+        "mean": 0.16140765115117836,
+        "median": 0.09375,
+        "max": 0.5111111111111111
+      }
+    },
+    "denominator_note": "Validity/forced EOS use all attempts; uniqueness, memorization and degeneracy use valid songs. Repetition summaries use supplied valid decoded songs. Exact diversity identity includes BPM and resolved events, excludes title.",
+    "repetition_interventions": {
+      "penalty_steps": {
+        "count": 25,
+        "min": 16,
+        "mean": 36.16,
+        "median": 38.0,
+        "max": 47
+      },
+      "pitch_run_blocks": {
+        "count": 25,
+        "min": 0,
+        "mean": 0.32,
+        "median": 0.0,
+        "max": 3
+      },
+      "motif_blocks": {
+        "count": 25,
+        "min": 0,
+        "mean": 0.2,
+        "median": 0.0,
+        "max": 1
+      },
+      "records_with_counters": 25,
+      "songs_with_hard_blocks": 7,
+      "definition": "Counters describe filtering steps, not whether the sampled token changed; summaries include all attempts with each recorded counter."
+    }
+  },
+  "naming": {
+    "attempted": 25,
+    "named": 25,
+    "failed": 0,
+    "disambiguated": 2,
+    "skipped": 0,
+    "status": "complete",
+    "model": {
+      "model": "Qwen/Qwen2.5-0.5B-Instruct",
+      "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+      "resolved_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+      "runtime": "transformers",
+      "requested_device": "auto",
+      "device": "mps",
+      "dtype": "float16",
+      "offline": true,
+      "fallbacks": [],
+      "sampling": {
+        "max_new_tokens": 24,
+        "do_sample": true,
+        "temperature": 0.85,
+        "top_p": 0.9,
+        "repetition_penalty": 1.15
+      },
+      "prompt_version": 2,
+      "input": "Measured symbolic melody descriptors; no audio or cloud inference",
+      "use_safetensors": true,
+      "trust_remote_code": false
+    }
+  },
+  "verification": {
+    "tests_passed": 339,
+    "tests_seconds": 3.54,
+    "wav_files_checked": 25,
+    "plan_tokens_rtttl_audio_metadata_consistent": true,
+    "runtime_copies_and_backups_checked": 8,
+    "original_and_mps_checkpoints_unchanged": true
+  },
+  "limits": [
+    "Handcrafted melody preferences, not learned genre labels or instrument sounds.",
+    "Five songs per profile illustrate variety; this is not a controlled musicality comparison.",
+    "Repetition caps are enforced by design, not an independent quality score."
+  ]
+}

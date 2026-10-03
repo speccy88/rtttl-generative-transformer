@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 
 from rtttl_gen.rtttl import parse_rtttl, song_to_dict, encode_rtttl
 from rtttl_gen.tokenizer import EventTokenizer
-from rtttl_gen.training import evaluate_loss, load_checkpoint, train
+from rtttl_gen.training import evaluate_loss, load_checkpoint, select_device, train
 from rtttl_gen.generation import generate_tokens
 
 
@@ -171,3 +171,107 @@ def test_skipped_amp_step_does_not_trigger_periodic_validation(tmp_path, monkeyp
     with (run / "metrics.csv").open() as f:
         rows = list(csv.DictReader(f))
     assert [int(row["global_step"]) for row in rows] == [1]
+
+
+@pytest.mark.parametrize("cuda,mps,expected", [(True, True, "cuda"), (False, True, "mps"), (False, False, "cpu")])
+def test_auto_device_prefers_cuda_then_mps_then_cpu(monkeypatch, cuda, mps, expected):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: cuda)
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: mps)
+    assert select_device().type == expected
+
+
+def test_explicit_mps_request_never_silently_falls_back(monkeypatch):
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False)
+    with pytest.raises(RuntimeError, match="MPS was requested"):
+        select_device("mps")
+
+
+def test_mps_rng_is_saved_and_restored_with_legacy_checkpoint_support(monkeypatch):
+    import rtttl_gen.training as training
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+    expected = torch.tensor([1, 2, 3], dtype=torch.uint8)
+    restored = []
+    monkeypatch.setattr(torch.mps, "get_rng_state", lambda: expected.clone())
+    monkeypatch.setattr(torch.mps, "set_rng_state", lambda state: restored.append(state.clone()))
+    state = training._rng_state()
+    assert torch.equal(state["mps"], expected)
+    training._restore_rng(state)
+    assert len(restored) == 1 and torch.equal(restored[0], expected)
+    del state["mps"]
+    training._restore_rng(state)
+    assert len(restored) == 1  # Older CPU/CUDA checkpoints have no MPS state.
+
+
+def test_sampling_preserves_mps_rng_and_training_mode(tmp_path, monkeypatch):
+    import rtttl_gen.generation as generation
+    import rtttl_gen.training as training
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+    mps_state = [torch.tensor([1, 2, 3], dtype=torch.uint8)]
+    monkeypatch.setattr(torch.mps, "get_rng_state", lambda: mps_state[0].clone())
+    monkeypatch.setattr(torch.mps, "set_rng_state", lambda state: mps_state.__setitem__(0, state.clone()))
+    tok = EventTokenizer()
+    def fake_generate(*args, **kwargs):
+        mps_state[0] = torch.tensor([7, 8, 9], dtype=torch.uint8)
+        return {"token_ids": tok.encode(parse_rtttl("s:d=4,o=5,b=120:c,e")), "forced_eos": False}
+    monkeypatch.setattr(generation, "generate_tokens", fake_generate)
+    model = torch.nn.Linear(2, 2)
+    training._sample(model, tok, {"samples": {"count": 1}}, tmp_path / "samples.txt", 1, "mps")
+    assert torch.equal(mps_state[0], torch.tensor([1, 2, 3], dtype=torch.uint8))
+    assert model.training
+
+
+def test_inference_checkpoint_warm_start_copies_only_weights_and_tracks_provenance(tmp_path):
+    data = tmp_path / "data"; write_data(data)
+    cfg = tiny_config(data, tmp_path / "runs")
+    cfg["training"]["stop_after_steps"] = 1
+    source_run = train(cfg)
+    source_path = source_run / "checkpoint_last.pt"
+    source = torch.load(source_path, map_location="cpu", weights_only=False)
+    inference = {key: source[key] for key in ("format_version", "model_type", "model_config", "model_state_dict", "tokenizer", "dataset_sha256")}
+    inference["inference_only"] = True
+    inference_path = tmp_path / "inference.pt"
+    torch.save(inference, inference_path)
+    with pytest.raises(ValueError, match="--init-checkpoint"):
+        train(cfg, resume=inference_path)
+    cfg["seed"] = 99
+    cfg["data"]["augment_semitones"] = 1
+    cfg["training"].update(epochs=1, max_steps=1, learning_rate=0.0)
+    warm_run = train(cfg, init_checkpoint=inference_path)
+    # A full checkpoint passed as initialization must also discard optimizer/RNG/history.
+    full_warm_run = train(cfg, init_checkpoint=source_path)
+    warm = torch.load(warm_run / "checkpoint_last.pt", map_location="cpu", weights_only=False)
+    full_warm = torch.load(full_warm_run / "checkpoint_last.pt", map_location="cpu", weights_only=False)
+    assert warm["global_step"] == 1 and warm["schedule_steps"] == 1
+    assert warm_run != source_run != full_warm_run
+    for key, value in source["model_state_dict"].items():
+        assert torch.equal(warm["model_state_dict"][key], value), key  # LR=0 isolates weight initialization.
+        assert torch.equal(full_warm["model_state_dict"][key], value), key
+    assert all(int(state["step"]) == 1 for state in warm["optimizer_state_dict"]["state"].values())
+    assert torch.equal(warm["rng_state"]["torch"], full_warm["rng_state"]["torch"])
+    assert warm["initialization_checkpoint"] == str(inference_path.resolve())
+    info = json.loads((warm_run / "model_info.json").read_text())
+    provenance = json.loads((warm_run / "provenance.json").read_text())
+    assert info["initialization_checkpoint"] == provenance["initialization_checkpoint"] == str(inference_path.resolve())
+    assert info["parent_checkpoint"] is None and provenance["parent_checkpoint"] is None
+    assert json.loads((warm_run / "summary.json").read_text())["stop_reason"] in {"max_steps", "stop_after_steps"}
+
+
+def test_warm_start_rejects_incompatible_checkpoint_before_creating_run(tmp_path):
+    data = tmp_path / "data"; write_data(data)
+    cfg = tiny_config(data, tmp_path / "runs")
+    cfg["training"]["stop_after_steps"] = 1
+    run = train(cfg)
+    checkpoint = run / "checkpoint_last.pt"
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        train(cfg, resume=checkpoint, init_checkpoint=checkpoint)
+    changed = copy.deepcopy(cfg)
+    changed["model"]["d_model"] = 32
+    with pytest.raises(ValueError, match="architecture and vocabulary"):
+        train(changed, init_checkpoint=checkpoint)
+    with (data / "test.jsonl").open("a") as output:
+        output.write("\n")
+    with pytest.raises(ValueError, match="SHA256"):
+        train(cfg, init_checkpoint=checkpoint)
+    assert list((tmp_path / "runs").iterdir()) == [run]

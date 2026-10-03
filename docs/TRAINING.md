@@ -8,7 +8,8 @@ Every training invocation creates a new run directory containing its configurati
 
 ## Presets
 
-- `local_2060s.yaml`: recommended full model, batch 16 × accumulation 4, automatic CPU/CUDA selection, CUDA FP16/BF16 as supported
+- `mac_mps.yaml`: three-epoch warm start on Apple Silicon; explicit MPS, FP32, batch 16 × accumulation 2, learning rate 3e-5, full validation
+- `local_2060s.yaml`: full model, batch 16 × accumulation 4, automatic CUDA/MPS/CPU selection, CUDA FP16/BF16 as supported
 - `runpod.yaml`: same model, batch 64 × accumulation 1, automatic device choice
 - `runpod_verified_cuda.yaml`: measured configuration; explicit CUDA, 60 epochs, two workers, training-only transposition ±2 semitones
 - `smoke_test.yaml`, `smoke_gru.yaml`, `smoke_ngram.yaml`: small functional checks using `data/smoke`
@@ -26,6 +27,34 @@ python train.py --config configs/runpod_verified_cuda.yaml --resume runs_runpod/
 Preserve the original architecture, schedule and batching configuration. Resume creates a new child run rather than replacing the parent. Full checkpoints preserve optimizer, scheduler and random-number states. Inference-only checkpoints lack those states and cannot reproduce an exact resume. Checkpoints contain Python objects; only open trusted files.
 
 The measured run was stopped after its first epoch, then resumed to epoch 60 using the same dataset/configuration. Its final summary reports 312.242753 cumulative training seconds. The best checkpoint's evaluation metadata captured 311.243146 seconds slightly earlier in the final save sequence; these are different instrumentation points, not independent training runs.
+
+## Apple Silicon fine-tuning
+
+```bash
+python scripts/check_environment.py --device mps
+python train.py --config configs/mac_mps.yaml --init-checkpoint /path/to/checkpoint_best_inference.pt
+```
+
+`--init-checkpoint` copies compatible weights into a new run with a fresh AdamW
+optimizer, scheduler, and seeded RNG stream. It accepts the inference-only
+checkpoint; `--resume` requires full optimizer/scheduler/RNG state. The two options
+are mutually exclusive. Initialization validates the model architecture, tokenizer,
+and all original split hashes. Each saved checkpoint records its initialization
+source, and all runs receive new directories under `runs_mps/`.
+
+Use a copied config to set `data.processed_dir` to the existing private dataset.
+The Mac preset uses MPS explicitly and FP32, not CUDA autocast. Automatic selection
+also recognizes MPS. Explicit `mps` never silently selects CPU; CPU processing still
+handles input files, metrics, audio and the portable sampling RNG. MPS RNG state is
+preserved for training and sampling isolation. Exact cross-device reproduction is
+not promised. Synthetic regression tests also exercise CPU mechanics.
+
+For a shorter invocation, `--stop-after-steps N` saves a resumable checkpoint at an
+optimizer-update boundary without changing the planned learning-rate schedule.
+The default preset is a bounded experiment, not a promise of musical improvement.
+Compare full validation loss and same-seed raw/guarded generations against the
+original checkpoint before choosing a new default. Keep the original available
+even if a new checkpoint lowers cross entropy.
 
 ## Monitoring and cloud operation
 

@@ -1,0 +1,68 @@
+{
+  "status": "PASS",
+  "date": "2026-10-03",
+  "scope": "Source and dataset-free safetensors inference package publication checks; no training rerun.",
+  "environment": {
+    "python": "3.11.15",
+    "torch": "2.6.0",
+    "platform": "macOS Apple M2",
+    "melody_device": "mps",
+    "title_device": "mps"
+  },
+  "source_tests": {
+    "passed": 341,
+    "failed": 0,
+    "seconds": 5.07
+  },
+  "dependency_check": "passed",
+  "conversion": {
+    "unique_parameters": 2009472,
+    "state_entries_compared": 53,
+    "weights_bitwise_identical": true,
+    "forward_logits_bitwise_identical": true,
+    "forward_input_shape": [
+      2,
+      64
+    ],
+    "file_bytes": 8042632
+  },
+  "inference_package_tests": {
+    "passed": 8,
+    "failed": 0
+  },
+  "mps_inference_package_smoke": {
+    "device": "mps",
+    "songs": 5,
+    "distinct_profiles": 5,
+    "bpm_values": [
+      83,
+      137,
+      93,
+      114,
+      142
+    ],
+    "named": 5,
+    "naming_device": "mps",
+    "naming_offline": true,
+    "wav_files": 5,
+    "matched_original_mps_tokens_and_wavs": true,
+    "seconds_including_naming_and_audio": 27.696141624939628
+  },
+  "weights_sha256": "80ca4903e453d84ced365107869b696722afc614b8a4b157023db01f451eb667",
+  "publication_scope": {
+    "github": "Allowlisted source, tests, docs, configurations and aggregate results.",
+    "hugging_face": "Safetensors weights, standalone inference, fixed vocabulary, scoped license/provenance and aggregate results."
+  },
+  "exclusions": [
+    "training corpus",
+    "processed music records",
+    "optimizer/RNG state",
+    "generated melodies/audio",
+    "local operational logs",
+    "credentials"
+  ],
+  "limits": [
+    "CPU and MPS exercised on Apple M2; other accelerator selection was mocked or inherited from earlier validation.",
+    "Checkpoint continuation validation does not establish improved listening quality or learned genre control."
+  ]
+}

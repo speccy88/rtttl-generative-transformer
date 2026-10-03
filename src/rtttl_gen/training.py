@@ -37,6 +37,8 @@ def seed_everything(seed: int, deterministic: bool = True) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+    if torch.backends.mps.is_available():
+        torch.mps.manual_seed(seed)
     if deterministic:
         # Set before a CUDA BLAS operation for CUDA reproducibility where supported.
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
@@ -54,9 +56,11 @@ def seed_worker(worker_id: int) -> None:
 
 def select_device(requested: str = "auto") -> torch.device:
     if requested == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        return torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     if requested.startswith("cuda") and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested, but this PyTorch installation cannot use CUDA.")
+    if requested.startswith("mps") and not torch.backends.mps.is_available():
+        raise RuntimeError("MPS was requested, but this PyTorch installation cannot use the Apple GPU. Install an MPS-enabled PyTorch on a supported Mac; CPU fallback is not automatic for an explicit MPS request.")
     return torch.device(requested)
 
 
@@ -118,7 +122,8 @@ def _new_run(output_root: str | Path, model_type: str) -> Path:
 def _rng_state() -> dict[str, Any]:
     return {"python": random.getstate(), "numpy": np.random.get_state(),
             "torch": torch.get_rng_state(),
-            "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None}
+            "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+            "mps": torch.mps.get_rng_state() if torch.backends.mps.is_available() else None}
 
 
 def _restore_rng(state: dict[str, Any]) -> None:
@@ -127,6 +132,8 @@ def _restore_rng(state: dict[str, Any]) -> None:
     torch.set_rng_state(state["torch"].cpu())
     if state.get("cuda") is not None and torch.cuda.is_available():
         torch.cuda.set_rng_state_all([item.cpu() for item in state["cuda"]])
+    if state.get("mps") is not None and torch.backends.mps.is_available():
+        torch.mps.set_rng_state(state["mps"].cpu())
 
 
 def _save_checkpoint(path: Path, checkpoint: dict[str, Any]) -> None:
@@ -254,13 +261,18 @@ def _loader(dataset, cfg: dict, *, training: bool, epoch: int = 0):
                       pin_memory=torch.cuda.is_available(), persistent_workers=False)
 
 
-def train(config: str | Path | dict[str, Any], resume: str | Path | None = None) -> Path:
+def train(config: str | Path | dict[str, Any], resume: str | Path | None = None,
+          init_checkpoint: str | Path | None = None) -> Path:
     """Train in a new directory. A resume preserves its parent run unchanged.
 
     max_steps is the planned total optimizer updates; stop_after_steps optionally
     interrupts this invocation at an update boundary for a reproducible resume.
+    init_checkpoint copies compatible weights only, starting a fresh optimizer,
+    schedule, RNG stream, and validation history; it is not an exact resume.
     All relative paths are relative to the working directory (run from project root).
     """
+    if resume is not None and init_checkpoint is not None:
+        raise ValueError("resume and init_checkpoint are mutually exclusive; choose exact resume or a new warm-start run.")
     if isinstance(config, (str, Path)):
         cfg = yaml.safe_load(Path(config).read_text(encoding="utf-8"))
     else:
@@ -285,10 +297,30 @@ def train(config: str | Path | dict[str, Any], resume: str | Path | None = None)
         raise ValueError("Training and validation splits must both contain songs.")
     model_config = dict(cfg.get("model", {}))
     model_type = model_config.pop("type", "transformer")
+    source = None
+    if resume or init_checkpoint:
+        if model_type == "ngram":
+            raise ValueError("N-gram fitting is immediate; resume and init_checkpoint apply to neural models only.")
+        source = torch.load(Path(resume or init_checkpoint), map_location="cpu", weights_only=False)
+        if source.get("format_version") != 1:
+            raise ValueError("Unsupported checkpoint format.")
+        resume_fields = {"optimizer_state_dict", "scaler_state_dict", "scheduler_state_dict", "rng_state",
+                         "next_epoch", "next_batch", "global_step", "best_val_loss", "stale_evaluations",
+                         "schedule_steps", "warmup_steps", "config"}
+        if resume and (source.get("inference_only") or not resume_fields.issubset(source)):
+            raise ValueError("This checkpoint lacks full training state and cannot be resumed exactly. Use --init-checkpoint to copy its weights into a new training run with a fresh optimizer and schedule.")
+        if source.get("dataset_sha256") != fingerprints:
+            raise ValueError("Dataset changed since checkpoint: split/tokenizer SHA256 mismatch.")
+        if (source.get("model_type") != model_type or source.get("model_config") != model_config
+                or source.get("tokenizer") != tokenizer.to_dict()):
+            raise ValueError("Checkpoint initialization requires the same model architecture and vocabulary.")
+    initialization_checkpoint = (str(Path(init_checkpoint).resolve()) if init_checkpoint
+                                 else source.get("initialization_checkpoint") if source else None)
     run = _new_run(cfg.get("output_root", "runs"), model_type)
     (run / "config.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
     _write_json(run / "dataset_sha256.json", fingerprints)
     _write_json(run / "provenance.json", {"parent_checkpoint": str(Path(resume).resolve()) if resume else None,
+                "initialization_checkpoint": initialization_checkpoint,
                 "utc_started": datetime.now(timezone.utc).isoformat(), "dataset_path": str(data_dir.resolve())})
     started = time.perf_counter()
     if model_type == "ngram":
@@ -341,6 +373,8 @@ def train(config: str | Path | dict[str, Any], resume: str | Path | None = None)
     val_data = SequenceDataset(validation_songs, tokenizer, context, seed=seed)
     val_loader = _loader(val_data, cfg, training=False)
     model = _model(model_type, model_config, tokenizer.vocab_size).to(device)
+    if init_checkpoint:
+        model.load_state_dict(source["model_state_dict"])
     param_count = sum(p.numel() for p in model.parameters())
     trainable_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
     optimizer = torch.optim.AdamW(model.parameters(), lr=float(tc.get("learning_rate", 3e-4)),
@@ -365,11 +399,7 @@ def train(config: str | Path | dict[str, Any], resume: str | Path | None = None)
     running_nll, running_tokens = 0.0, 0
     prior_seconds = 0.0
     if resume:
-        _, _, parent = load_checkpoint(resume, device="cpu")
-        if parent["dataset_sha256"] != fingerprints:
-            raise ValueError("Dataset changed since checkpoint: split/tokenizer SHA256 mismatch.")
-        if parent["model_type"] != model_type or parent["model_config"] != model_config:
-            raise ValueError("Resume requires the same model architecture and vocabulary.")
+        parent = source
         old_cfg = parent["config"]
         for key in ("seed", "data"):
             # Dataset path may move on RunPod; compare data options without that path.
@@ -420,7 +450,8 @@ def train(config: str | Path | dict[str, Any], resume: str | Path | None = None)
                 "fp32_adamw_parameter_state_MiB": param_count * 16 / 1024**2,
                 "memory_note": "Parameter-state estimate excludes activations, attention workspaces, logits, CUDA context and allocator. Measure peak memory on your GPU.",
                 "device": str(device), "mixed_precision": str(amp_dtype),
-                "torch_version": torch.__version__, "parent_checkpoint": str(resume) if resume else None}
+                "torch_version": torch.__version__, "parent_checkpoint": str(resume) if resume else None,
+                "initialization_checkpoint": initialization_checkpoint}
     _write_json(run / "model_info.json", metadata)
     print(json.dumps(metadata, indent=2), flush=True)
     writer_tb = None
@@ -471,6 +502,7 @@ def train(config: str | Path | dict[str, Any], resume: str | Path | None = None)
         running_nll, running_tokens = 0.0, 0
         checkpoint = {"format_version": 1, "model_type": model_type, "model_config": model_config,
             "model_state_dict": model.state_dict(), "tokenizer": tokenizer.to_dict(), "config": cfg,
+            "initialization_checkpoint": initialization_checkpoint,
             "dataset_sha256": fingerprints, "optimizer_state_dict": optimizer.state_dict(),
             "scaler_state_dict": scaler.state_dict(), "scheduler_state_dict": scheduler.state_dict(),
             "rng_state": _rng_state(), "epoch": epoch_label, "next_epoch": next_epoch, "next_batch": next_batch,
@@ -571,15 +603,17 @@ def train(config: str | Path | dict[str, Any], resume: str | Path | None = None)
 
 def main() -> None:
     import argparse
-    parser = argparse.ArgumentParser(description="Train a scratch Transformer, GRU, or n-gram model.")
+    parser = argparse.ArgumentParser(description="Train or fine-tune a Transformer, GRU, or n-gram model.")
     parser.add_argument("--config", required=True, help="YAML config, interpreted relative to current project directory")
-    parser.add_argument("--resume", help="Trusted checkpoint; resume creates a NEW run directory")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--resume", help="Trusted full training checkpoint; exact resume creates a NEW run directory")
+    source.add_argument("--init-checkpoint", help="Trusted neural checkpoint; copy weights into a NEW run with a fresh optimizer and schedule")
     parser.add_argument("--stop-after-steps", type=int, help="Stop this invocation after N updates; checkpoint can resume")
     args = parser.parse_args()
     cfg = yaml.safe_load(Path(args.config).read_text())
     if args.stop_after_steps is not None:
         cfg.setdefault("training", {})["stop_after_steps"] = args.stop_after_steps
-    train(cfg, resume=args.resume)
+    train(cfg, resume=args.resume, init_checkpoint=args.init_checkpoint)
 
 
 if __name__ == "__main__":

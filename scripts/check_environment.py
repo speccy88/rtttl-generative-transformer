@@ -19,6 +19,8 @@ def main():
     result = {"python_version": platform.python_version(), "python_executable": sys.executable,
               "platform": platform.platform(), "pytorch_version": torch.__version__,
               "torch_cuda_build": torch.version.cuda, "cuda_available": cuda,
+              "mps_built": torch.backends.mps.is_built(),
+              "mps_available": torch.backends.mps.is_available(),
               "gpu_name": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
               "gpu_vram_GiB": torch.cuda.get_device_properties(device).total_memory / 1024**3 if device.type == "cuda" else None,
               "cuda_device_count": torch.cuda.device_count(), "selected_device": str(device),

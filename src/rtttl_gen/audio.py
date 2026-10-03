@@ -60,24 +60,35 @@ def create_listening_batch(records: Sequence[dict], output_dir: Path | str, samp
         if not record.get("valid") or not record.get("rtttl"):
             continue
         song = parse_rtttl(record["rtttl"])
+        display_name = str(record.get("title") or song.name)
+        settings = record.get("generation_settings") or {}
+        profile = settings.get("profile")
+        guidance_label = ""
+        if profile is not None:
+            key = f'{settings.get("tonic", "C")} {settings.get("mode", "major")}'
+            profile_label = str(profile).replace("-", " ").capitalize()
+            guidance_label = f'<p><strong>{html.escape(profile_label)}</strong> · {html.escape(key)} preference</p>'
         filename = f"sample_{i:04d}.wav"
         try:
             metadata = render_wav(song, output_dir / filename, sample_rate, max_seconds)
             metadata["sample_id"] = record.get("id", i)
-            metadata["name"] = song.name
+            metadata["name"] = display_name
             manifest.append(metadata)
             audio = f'<audio controls preload="none" src="{filename}"></audio>'
         except ValueError as exc:
-            metadata = {"sample_id": record.get("id", i), "name": song.name, "error": str(exc)}
+            metadata = {"sample_id": record.get("id", i), "name": display_name, "error": str(exc)}
             manifest.append(metadata)
             audio = f'<p class="warning">Audio skipped: {html.escape(str(exc))}</p>'
+        metadata["bpm"] = song.bpm
+        if settings:
+            metadata["generation_settings"] = dict(settings)
         similarity = record.get("similarity", {})
         label = similarity.get("label", "not evaluated")
         score = similarity.get("score")
         closest = similarity.get("closest_name", "—")
         flags = ", ".join(record.get("degeneracy_flags", [])) or "none"
-        cards.append(f'<section><h2>{i}. {html.escape(song.name)}</h2>{audio}<p>{len(song.events)} events · {song.bpm} BPM · {html.escape(str(label))} (score {score})</p><p>Nearest training song: {html.escape(str(closest))}. Review flags: {html.escape(flags)}.</p><details><summary>RTTTL</summary><pre>{html.escape(record["rtttl"])}</pre></details></section>')
-    page = '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RTTTL listening batch</title><style>body{font:16px system-ui;max-width:960px;margin:40px auto;padding:0 20px;background:#f5f7fa;color:#1b2638}section{background:white;padding:20px;margin:16px 0;border:1px solid #dde3ec;border-radius:10px}h2{font-size:19px}audio{width:100%}pre{white-space:pre-wrap;overflow-wrap:anywhere}.warning{color:#8a3700}</style><h1>RTTTL listening batch</h1><p>Local WAV previews. Similarity scores are heuristic and do not establish originality. Neural smoke checkpoints demonstrate the pipeline, not musical quality.</p>' + "".join(cards) + '</html>'
+        cards.append(f'<section><h2>{i}. {html.escape(display_name)}</h2>{guidance_label}{audio}<p>{len(song.events)} events · {song.bpm} BPM · {html.escape(str(label))} (score {score})</p><p>Nearest training song: {html.escape(str(closest))}. Review flags: {html.escape(flags)}.</p><details><summary>RTTTL</summary><pre>{html.escape(record["rtttl"])}</pre></details></section>')
+    page = '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RTTTL listening batch</title><style>body{font:16px system-ui;max-width:960px;margin:40px auto;padding:0 20px;background:#f5f7fa;color:#1b2638}section{background:white;padding:20px;margin:16px 0;border:1px solid #dde3ec;border-radius:10px}h2{font-size:19px}audio{width:100%}pre{white-space:pre-wrap;overflow-wrap:anywhere}.warning{color:#8a3700}</style><h1>RTTTL listening batch</h1><p>Local WAV previews using the same gentle sine sound. Style and key labels describe melody preferences, not instrument sounds or full arrangements. Similarity scores are heuristic and do not establish originality.</p>' + "".join(cards) + '</html>'
     (output_dir / "index.html").write_text(page, encoding="utf-8")
     (output_dir / "audio_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return manifest
