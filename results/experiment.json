@@ -1,0 +1,237 @@
+{
+  "experiment_date": "2026-10-03",
+  "status": "executed",
+  "public_scope": "Aggregate measurements only; original data, weights and generated melodies withheld pending rights clarification.",
+  "model": {
+    "model_type": "transformer",
+    "parameters": 2009472,
+    "trainable_parameters": 2009472,
+    "vocabulary_size": 940,
+    "context_length": 256
+  },
+  "training": {
+    "train_songs": 7828,
+    "validation_songs": 980,
+    "train_windows": 7840,
+    "validation_windows": 984,
+    "global_step": 7380,
+    "training_seconds": 312.24275316670537,
+    "stop_reason": "epochs_completed",
+    "best_validation_loss": 1.317017104655629,
+    "peak_cuda_MiB": 776.8662109375
+  },
+  "predictive": {
+    "validation": {
+      "cross_entropy_nats": 1.3170171429622124,
+      "perplexity": 3.732271923340637,
+      "target_tokens": 95600,
+      "songs": 980,
+      "context_windows": 984,
+      "context_length": 256,
+      "grammar_masked": false,
+      "window_policy": "training SequenceDataset; complete event windows; BOS/BPM prefix; duplicate BPM targets masked; EOS only true ending; every original target once"
+    },
+    "test": {
+      "cross_entropy_nats": 1.3454013710787707,
+      "perplexity": 3.839727386877149,
+      "target_tokens": 93358,
+      "songs": 978,
+      "context_windows": 979,
+      "context_length": 256,
+      "grammar_masked": false,
+      "window_policy": "training SequenceDataset; complete event windows; BOS/BPM prefix; duplicate BPM targets masked; EOS only true ending; every original target once"
+    }
+  },
+  "generation": {
+    "attempted_songs": 100,
+    "valid_songs": 100,
+    "rtttl_validity_pct": 100.0,
+    "unique_generated_sequences": 100,
+    "unique_generations_pct": 100.0,
+    "duplicate_generation_pct": 0.0,
+    "exact_training_match_pct": 0.0,
+    "transposition_family_match_pct": 0.0,
+    "nearest_similarity": {
+      "count": 100,
+      "min": 0.088393,
+      "mean": 0.33246373999999995,
+      "median": 0.299535,
+      "max": 1.0
+    },
+    "pitch_entropy_bits": 4.066887492191652,
+    "event_entropy_bits": 5.455754111780606,
+    "degenerate_generation_pct": 19.0,
+    "forced_eos_pct": 31.0,
+    "similarity_labels": {
+      "low similarity": 74,
+      "moderate similarity": 23,
+      "near match": 3
+    },
+    "denominator_note": "Validity/forced EOS use all attempts; uniqueness, memorization and degeneracy use valid songs. Exact diversity identity includes BPM and resolved events, excludes title."
+  },
+  "distributions": {
+    "real_song_count": 978,
+    "generated_song_count": 100,
+    "real": {
+      "pitch": {
+        "count": 39196,
+        "min": 60,
+        "mean": 83.47270129605062,
+        "median": 83.0,
+        "max": 107
+      },
+      "interval": {
+        "count": 38218,
+        "min": -32,
+        "mean": -0.01198388194044691,
+        "median": 0.0,
+        "max": 35
+      },
+      "duration_beats": {
+        "count": 45701,
+        "min": 0.125,
+        "mean": 0.695005306229623,
+        "median": 0.5,
+        "max": 6.0
+      },
+      "bpm": {
+        "count": 978,
+        "min": 25,
+        "mean": 133.6319018404908,
+        "median": 125.0,
+        "max": 635
+      },
+      "event_length": {
+        "count": 978,
+        "min": 5,
+        "mean": 46.72903885480573,
+        "median": 45.0,
+        "max": 207
+      },
+      "rest_fraction": {
+        "count": 978,
+        "min": 0.0,
+        "mean": 0.1314439160338556,
+        "median": 0.08797729618163055,
+        "max": 0.5844155844155844
+      },
+      "note_range": {
+        "count": 978,
+        "min": 0,
+        "mean": 12.781186094069529,
+        "median": 12.0,
+        "max": 35
+      },
+      "dotted_fraction": {
+        "count": 978,
+        "min": 0.0,
+        "mean": 0.09971053928052605,
+        "median": 0.03149801587301587,
+        "max": 1.0
+      }
+    },
+    "generated": {
+      "pitch": {
+        "count": 6056,
+        "min": 72,
+        "mean": 81.17899603698811,
+        "median": 82.0,
+        "max": 97
+      },
+      "interval": {
+        "count": 5956,
+        "min": -8,
+        "mean": -0.0005036937541974479,
+        "median": 0.0,
+        "max": 12
+      },
+      "duration_beats": {
+        "count": 7090,
+        "min": 0.125,
+        "mean": 0.5637341325811002,
+        "median": 0.5,
+        "max": 2.0
+      },
+      "bpm": {
+        "count": 100,
+        "min": 70,
+        "mean": 132.91,
+        "median": 125.0,
+        "max": 225
+      },
+      "event_length": {
+        "count": 100,
+        "min": 16,
+        "mean": 70.9,
+        "median": 80.5,
+        "max": 96
+      },
+      "rest_fraction": {
+        "count": 100,
+        "min": 0.0,
+        "mean": 0.1472663156921749,
+        "median": 0.05083655083655084,
+        "max": 0.6153846153846154
+      },
+      "note_range": {
+        "count": 100,
+        "min": 0,
+        "mean": 5.15,
+        "median": 5.0,
+        "max": 16
+      },
+      "dotted_fraction": {
+        "count": 100,
+        "min": 0.0,
+        "mean": 0.029462171052631582,
+        "median": 0.0,
+        "max": 1.0
+      }
+    },
+    "categorical_js_divergence_bits": {
+      "pitch": 0.16782590305816159,
+      "interval": 0.1288490051270098,
+      "duration_beats": 0.056682634522764584,
+      "bpm": 0.07174228408925212
+    },
+    "definitions": {
+      "duration_beats": "quarter-note beats including dotted multiplier; includes rests",
+      "interval": "semitones between consecutive pitched notes, skipping rests",
+      "note_range": "max minus min MIDI pitch per song; zero for songs with no notes",
+      "js_divergence": "0 identical categorical distributions, 1 disjoint; descriptive, no significance claim"
+    }
+  },
+  "evaluation": {
+    "scope": "full provided validation/test splits",
+    "evaluation_seconds": 31.25637897104025,
+    "training_seconds_at_checkpoint_save": 311.2431462369859,
+    "arguments": {
+      "device": "cuda",
+      "batch_size": 32,
+      "context_length": null,
+      "max_eval_songs": null,
+      "audio": true,
+      "threads": 2,
+      "num_songs": 100,
+      "temperature": 0.8,
+      "top_k": 20,
+      "top_p": 0.95,
+      "min_events": 8,
+      "max_events": 96,
+      "bpm": null,
+      "seed": 42
+    },
+    "runtime": {
+      "device": "cuda",
+      "gpu": "NVIDIA GeForce RTX 3090",
+      "torch": "2.6.0+cu124",
+      "python": "3.11.10"
+    }
+  },
+  "dataset_sha256": {
+    "train.jsonl": "0b8dd44e412c9569ef43c9b79dad651b2a0c6af39b2d9be004abd025ff472b03",
+    "val.jsonl": "b1b57c86fc45e040695ce4da449b7a2eaa1dbcf2a7cdde7e4696efa2325801af",
+    "test.jsonl": "9d7be7ea7e2d41431d492d1db2b96df1be30de5c38271b34eb1ebed118e25edc",
+    "tokenizer.json": "0d294b28e14689544db7ab74f690e432f5dd02bb7dbcfc620b0f5937fe31252b"
+  }
+}

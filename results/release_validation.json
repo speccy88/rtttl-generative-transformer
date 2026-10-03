@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-03",
+  "scope": "Public source release; CPU verification using generated artificial fixtures, without the withheld music corpus or pretrained weights.",
+  "environment": {
+    "python": "3.12.14",
+    "torch": "2.6.0+cpu",
+    "device": "cpu"
+  },
+  "tests": {
+    "command": "python -m pytest -q",
+    "passed": 89,
+    "failed": 0,
+    "seconds": 4.49
+  },
+  "pip_check": "passed",
+  "compileall": "passed",
+  "synthetic_demo": {
+    "created_songs": 128,
+    "families": 128,
+    "split_songs": {
+      "train": 102,
+      "val": 13,
+      "test": 13
+    },
+    "integrity_roundtrips": 128,
+    "leakage_checks": "passed",
+    "smoke_training_optimizer_steps": 24,
+    "generated_songs": 10,
+    "valid_generated_songs": 10,
+    "wav_files": 10,
+    "evaluation_test_songs": 13,
+    "evaluation_status": "completed"
+  },
+  "review": {
+    "allowlisted_files": 64,
+    "secret_and_privacy_pattern_scan_findings": 0,
+    "relative_documentation_links": "passed",
+    "withheld": [
+      "original and processed music corpus",
+      "trained model weights",
+      "generated music and audio",
+      "original machine and operational logs",
+      "per-song distributions and inventories"
+    ],
+    "note": "Pattern scan and human-style source inspection are best-effort review, not a guarantee of absence."
+  },
+  "gpu_training_rerun_for_release": false,
+  "github_actions_configured": false
+}

@@ -1,0 +1,21 @@
+# Five-token n-gram = roughly two musical events of context (pitch + duration).
+seed: 42
+deterministic: true
+output_root: runs
+data:
+  processed_dir: data/processed
+  context_length: 256
+  augment_semitones: 0
+model:
+  type: ngram
+  order: 5
+  alpha: 0.1
+training:
+  device: cpu
+  cpu_threads: 4
+samples:
+  count: 4
+  min_events: 16
+  max_events: 64
+  temperature: 0.8
+  top_k: 20

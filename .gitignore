@@ -1,0 +1,33 @@
+# Python and tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv*/
+venv/
+.env
+.env.*
+!.env.example
+build/
+dist/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+.DS_Store
+# Local corpora, model artifacts, and operational records
+data/
+runs/
+runs_runpod/
+generated/
+evaluations/
+evidence/
+runpod_evidence/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.wav
+*.mp3
+*.zip
+*.log
+PACKAGE_MANIFEST.json
