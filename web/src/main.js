@@ -1,7 +1,8 @@
 import './styles.css';
 import { parseRtttl } from './rtttl.js';
 import { createPlayer, renderWav, renderMp3 } from './audio.js';
-import { primeBrowserCache } from './model-cache.js';
+import { primeBrowserCache, connectWorkerCache } from './model-cache.js';
+import { isWebKitEngine, WEBKIT_CPU_REASON } from './browser-policy.js';
 
 const browserCacheReady = primeBrowserCache().catch(() => {});
 
@@ -25,10 +26,60 @@ const DEMO = {
 };
 const state = {
   profile: 'mixed', songs: [], currentSong: DEMO, parsedSong: parseRtttl(DEMO.rtttl),
-  worker: null, manifest: null, busy: false, exporting: false, jobId: null,
+  worker: null, disconnectWorkerCache: null, manifest: null, busy: false, exporting: false, jobId: null,
   incomingSongs: [], receivedFirstSong: false, titleController: null,
   cancelled: false, namingRequested: false, backend: null, activeNote: null, manifestController: null,
+  finishing: false,
+  leavingDuringGeneration: false,
+  usedTitles: [], usedNames: [],
+  disposeTitleWorker: null,
 };
+const LIBRARY_STORAGE_KEY = 'pocket-composer-library-v1';
+const MAX_SAVED_SONGS = 64;
+
+function saveLibrary() {
+  // Save completed scores before the optional, larger title model starts. Mobile
+  // browsers can discard a tab under memory pressure; the music must survive it.
+  const songs = state.songs.slice(-MAX_SAVED_SONGS).map(song => ({
+    id: song.id, rtttl: song.rtttl, title: song.title, name: song.name,
+    source: song.source, settings: song.settings || song.generation_settings,
+    naming: song.naming, namingPending: Boolean(song.namingPending), seed: song.seed,
+  }));
+  try {
+    localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify({ version: 1, songs,
+      selectedId: state.currentSong.id, interrupted: state.busy || state.leavingDuringGeneration,
+      usedTitles: state.usedTitles, usedNames: state.usedNames }));
+  } catch { /* Storage can be unavailable; keep the playable in-memory library. */ }
+}
+
+function restoreLibrary() {
+  try {
+    const raw = localStorage.getItem(LIBRARY_STORAGE_KEY);
+    if (!raw || raw.length > 5_000_000) return false;
+    const saved = JSON.parse(raw);
+    if (saved.version !== 1 || !Array.isArray(saved.songs)) return false;
+    for (const key of ['usedTitles', 'usedNames']) {
+      state[key] = Array.isArray(saved[key]) ? saved[key].filter(value => typeof value === 'string' && value.length < 128).slice(-64) : [];
+    }
+    const ids = new Set();
+    const restored = saved.songs.slice(-MAX_SAVED_SONGS).flatMap(song => {
+      try {
+        if (!song || typeof song.id !== 'string' || !song.id || song.id.length > 128
+            || ids.has(song.id) || typeof song.rtttl !== 'string' || song.rtttl.length > 65536) return [];
+        parseRtttl(song.rtttl);
+        ids.add(song.id);
+        return [{ ...song, namingPending: false }];
+      } catch { return []; }
+    });
+    if (!restored.length) return false;
+    state.songs = restored;
+    selectSong(restored.find(song => song.id === saved.selectedId) || restored[0]);
+    drawLibrary();
+    if (saved.interrupted) setProgress('Your completed melodies were restored. Generation was interrupted; press play or make a new batch.', 100);
+    saveLibrary();
+    return true;
+  } catch { return false; }
+}
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
@@ -135,6 +186,7 @@ function selectSong(song) {
     row.classList.toggle('is-selected', selected);
     row.querySelector('.song-select').setAttribute('aria-pressed', String(selected));
   }
+  if (song.source !== 'demo') saveLibrary();
 }
 
 function drawLibrary() {
@@ -273,6 +325,7 @@ function setBusy(busy) {
   $('#cancel-button').textContent = 'Stop generation';
   if (!busy) { chooseProfile(state.profile); $('#hardware-status').dataset.state = state.backend === 'wasm' ? 'cpu' : 'ready'; }
   else $('#hardware-status').dataset.state = 'busy';
+  if (!busy) saveLibrary();
 }
 function setProgress(message, percent = null) {
   $('#generation-status').hidden = false;
@@ -331,61 +384,92 @@ function receiveSong(song) {
   state.songs.push(record);
   if (state.incomingSongs.length === 1) selectSong(record);
   drawLibrary();
+  saveLibrary();
+}
+
+function mergeSongTitle(original, named) {
+  if (!named || String(named.id) !== String(original.id)) return original;
+  // Naming can change only the display title and RTTTL name. Never let a title
+  // response replace the score, identity, metadata, or the rest of the batch.
+  const before = original.rtttl.indexOf(':');
+  const after = typeof named.rtttl === 'string' ? named.rtttl.indexOf(':') : -1;
+  if (before < 0 || after < 1 || original.rtttl.slice(before) !== named.rtttl.slice(after)) return original;
+  const parsed = parseRtttl(named.rtttl);
+  return { ...original, title: typeof named.title === 'string' ? named.title : original.title,
+    name: parsed.name, rtttl: named.rtttl, naming: named.naming, namingPending: false };
+}
+
+function applyNamedSongs(named) {
+  const byId = new Map(named.filter(song => song && song.id !== undefined).map(song => [String(song.id), song]));
+  const update = song => {
+    try { return mergeSongTitle(song, byId.get(String(song.id))); }
+    catch { return song; }
+  };
+  state.incomingSongs = state.incomingSongs.map(update);
+  state.songs = state.songs.map(update);
+  for (const song of state.incomingSongs) {
+    if (song.naming?.status !== 'named'
+        && !(song.naming?.status === 'fallback' && song.naming.strategy === 'musical-character')) continue;
+    for (const [key, value] of [['usedTitles', song.title], ['usedNames', song.name]]) {
+      if (typeof value !== 'string' || !value) continue;
+      state[key] = [...state[key].filter(previous => previous.toLowerCase() !== value.toLowerCase()), value].slice(-64);
+    }
+  }
+  updateCurrentTitle(); drawLibrary(); saveLibrary();
 }
 
 async function nameGeneratedSongs() {
   if (!state.namingRequested || !state.incomingSongs.length || state.cancelled) return;
-  state.titleController = new AbortController();
+  const jobId = state.jobId;
+  const songs = [...state.incomingSongs];
+  const controller = new AbortController();
+  state.titleController = controller;
   setProgress('Loading the optional title model…');
   try {
     // This separate chunk and its LLM dependencies are loaded only after opt-in.
-    const { titleSongs } = await import('./titles.js');
-    if (state.cancelled) return;
-    const named = await titleSongs(state.incomingSongs, {
-      signal: state.titleController.signal,
+    const { titleSongs, disposeTitleWorker } = await import('./titles.js');
+    state.disposeTitleWorker = disposeTitleWorker;
+    if (state.cancelled || state.jobId !== jobId) return;
+    const named = await titleSongs(songs, {
+      signal: controller.signal,
+      usedTitles: state.usedTitles, usedNames: state.usedNames,
       onProgress(progress) {
-        if (state.cancelled) return;
+        if (state.cancelled || state.jobId !== jobId) return;
         if (progress.cacheEvent) { updateCacheNotice(progress); return; }
         setProgress(progress.message || 'Finding a name for your melody…', progress.downloadProgress ?? null);
-        if (progress.title && progress.songId !== undefined) {
-          const match = state.songs.find(song => String(song.id) === String(progress.songId));
-          if (match) {
-            // Commit each completed title, including its RTTTL name, so later
-            // cancellation preserves consistent display and exported names.
-            Object.assign(match, progress.song || { title: progress.title }, { namingPending: false });
-            drawLibrary(); updateCurrentTitle();
-          }
-        }
+        if (progress.song && progress.songId !== undefined) applyNamedSongs([progress.song]);
       },
     });
-    if (Array.isArray(named)) {
-      state.incomingSongs = named.map(song => ({ ...song, source: 'generated', namingPending: false }));
-      const namedById = new Map(state.incomingSongs.map(song => [String(song.id), song]));
-      state.songs = state.songs.map(song => namedById.get(String(song.id)) || song);
-      updateCurrentTitle(); drawLibrary();
-    }
+    if (!state.cancelled && state.jobId === jobId && Array.isArray(named)) applyNamedSongs(named);
   } catch (error) {
-    if (!state.cancelled && error?.name !== 'AbortError') showError(`Your melodies are ready, but automatic naming did not finish: ${error.message || error}`);
-  } finally { state.titleController = null; }
+    if (!state.cancelled && state.jobId === jobId && error?.name !== 'AbortError') showError(`Your melodies are ready, but automatic naming did not finish: ${error.message || error}`);
+  } finally { if (state.titleController === controller) state.titleController = null; }
 }
 
 async function finishGeneration(data) {
+  if (state.finishing) return;
+  state.finishing = true;
+  const jobId = state.jobId;
   if (data.backend) setBackend(data.backend, data.fallbackReason);
   // Some worker versions deliver only the final array; support both streaming and final results.
   if (!state.incomingSongs.length && Array.isArray(data.songs)) data.songs.forEach(receiveSong);
   state.cancelled ||= Boolean(data.cancelled);
   await nameGeneratedSongs();
+  if (state.jobId !== jobId) return;
   state.songs.forEach(song => { song.namingPending = false; });
   drawLibrary();
   const count = state.incomingSongs.length;
   setProgress(state.cancelled ? `Stopped. ${count ? `${count} completed ${count === 1 ? 'melody is' : 'melodies are'} ready to play.` : 'Ready whenever you are.'}` : `${count} ${count === 1 ? 'melody' : 'melodies'}, made on your device. Press play.`, 100);
   state.jobId = null;
   setBusy(false);
+  state.finishing = false;
+  saveLibrary();
 }
 
 function getWorker() {
   if (state.worker) return state.worker;
   const worker = new Worker(new URL('./melody-worker.js', import.meta.url), { type: 'module' });
+  state.disconnectWorkerCache = connectWorkerCache(worker);
   worker.addEventListener('message', ({ data }) => {
     if (!state.busy || (data.id !== undefined && String(data.id) !== String(state.jobId))) return;
     try {
@@ -399,7 +483,7 @@ function getWorker() {
           const progress = ((data.songIndex ?? 0) + Math.min(1, (data.eventCount ?? 0) / (data.maxEvents || 48))) / (data.numSongs || 1) * 100;
           setProgress(`Composing melody ${songIndex} of ${data.numSongs}…`, progress);
         }
-      } else if (data.type === 'song') receiveSong(data.song);
+      } else if (data.type === 'song' && !state.finishing) receiveSong(data.song);
       else if (data.type === 'done') void finishGeneration(data).catch(error => { showError(error); setBusy(false); });
       else if (data.type === 'error') {
         showError(data.message || 'The melody model could not finish. Try again or select CPU in the advanced settings.');
@@ -410,11 +494,13 @@ function getWorker() {
     } catch (error) { showError(error); state.worker?.postMessage({ type: 'cancel', id: state.jobId }); state.jobId = null; setBusy(false); }
   });
   worker.addEventListener('error', event => {
+    if (state.worker !== worker) return;
     if (state.busy) {
       showError(event.message || 'The local generation worker could not start. Reload the page or try another browser.');
       setProgress('The model could not start. Your player is still available.', 0);
       state.jobId = null; setBusy(false);
     }
+    state.disconnectWorkerCache?.(); state.disconnectWorkerCache = null;
     worker.terminate(); state.worker = null;
   });
   state.worker = worker;
@@ -429,15 +515,20 @@ async function generate(event) {
   let options;
   try { options = generationOptions(); } catch (error) { showError(error); return; }
   state.jobId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const jobId = state.jobId;
   state.incomingSongs = []; state.receivedFirstSong = false; state.cancelled = false;
+  state.finishing = false;
+  state.leavingDuringGeneration = false;
   state.namingRequested = $('#name-songs').checked;
   setBusy(true); setProgress('Getting the local melody model ready…');
   try {
     const modelManifest = await loadManifest();
     await browserCacheReady;
+    if (state.jobId !== jobId) return;
     if (state.cancelled) { await finishGeneration({ cancelled: true, songs: [] }); return; }
     getWorker().postMessage({ type: 'generate', id: state.jobId, options, modelManifest });
   } catch (error) {
+    if (state.jobId !== jobId) return;
     if (state.cancelled) { await finishGeneration({ cancelled: true, songs: [] }); return; }
     showError(error); setProgress('The model could not load. Check your connection and try again.', 0);
     state.jobId = null; setBusy(false);
@@ -460,6 +551,7 @@ function importTune(text) {
     const parsed = parseRtttl(text);
     const record = { id: `import-${Date.now()}`, title: parsed.name, name: parsed.name, rtttl: text.replace(/^\uFEFF/, '').trim(), source: 'import' };
     clearError(); state.songs.push(record); selectSong(record); drawLibrary();
+    saveLibrary();
     $('#player-card').scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'nearest' });
   } catch (error) { showError(error); }
 }
@@ -502,11 +594,39 @@ $('#rtttl-file').addEventListener('change', async event => {
 document.addEventListener('keydown', event => {
   if (event.code === 'Space' && !event.repeat && !event.target.closest('button, input, textarea, select, a, summary, [contenteditable="true"]')) { event.preventDefault(); void togglePlayback(); }
 });
-window.addEventListener('pagehide', () => { stopPlayback(); state.manifestController?.abort(); state.titleController?.abort(); state.worker?.terminate(); state.worker = null; });
+window.addEventListener('pagehide', () => {
+  state.leavingDuringGeneration = state.busy;
+  saveLibrary(); stopPlayback();
+  if (state.busy) {
+    state.cancelled = true; state.jobId = null; state.finishing = false;
+  }
+  state.manifestController?.abort(); state.titleController?.abort();
+  state.disposeTitleWorker?.();
+  state.disconnectWorkerCache?.(); state.disconnectWorkerCache = null;
+  state.worker?.terminate(); state.worker = null;
+  if (state.leavingDuringGeneration) {
+    state.songs.forEach(song => { song.namingPending = false; });
+    drawLibrary(); setBusy(false);
+  }
+});
+window.addEventListener('pageshow', event => {
+  if (!event.persisted || !state.leavingDuringGeneration) return;
+  setProgress('Your completed melodies were restored. Generation was interrupted; press play or make a new batch.', 100);
+  state.leavingDuringGeneration = false;
+  saveLibrary();
+});
 
-selectSong(DEMO);
+if (!restoreLibrary()) selectSong(DEMO);
 chooseProfile('mixed');
 async function detectHardware() {
+  if (isWebKitEngine()) {
+    $('#backend option[value="webgpu"]').disabled = true;
+    $('#backend option[value="webgpu"]').textContent = 'WebGPU unavailable in this browser';
+    $('#hardware-status').innerHTML = '<span class="status-dot"></span>CPU mode · ready to create';
+    $('#hardware-status').dataset.state = 'cpu';
+    $('#hardware-status').title = WEBKIT_CPU_REASON;
+    return;
+  }
   try {
     if (navigator.gpu && await navigator.gpu.requestAdapter()) {
       $('#hardware-status').innerHTML = '<span class="status-dot"></span>WebGPU available · ready to create';

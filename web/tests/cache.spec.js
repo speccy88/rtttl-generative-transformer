@@ -10,6 +10,8 @@ import { join } from 'node:path';
 // signed asset URLs. No real model downloads are needed to check persistence.
 const bytes = Buffer.from(Array.from({ length: 256 * 1024 }, (_, index) => (index * 31 + 17) % 256));
 const expectedDigest = createHash('sha256').update(bytes).digest('hex');
+const largeBytes = Buffer.from(Array.from({ length: 18 * 1024 * 1024 + 73 }, (_, index) => (index * 31 + 17) % 256));
+const largeDigest = createHash('sha256').update(largeBytes).digest('hex');
 const counts = new Map();
 let pageServer;
 let assetServer;
@@ -17,19 +19,41 @@ let fixtureOrigin;
 let assetOrigin;
 
 const workerCode = `
+import * as cacheModule from '/src/model-cache.js';
 const fault = new URL(location.href).searchParams.get('fault');
-if (fault === 'cache-unavailable') {
+if (fault.includes('cache-unavailable')) {
   Object.defineProperty(globalThis, 'caches', { value: undefined, configurable: true });
 }
-if (fault === 'storage-full') {
+if (fault.includes('storage-full')) {
   Object.defineProperty(globalThis, 'caches', {
     value: { open: async () => { throw new DOMException('Test quota reached', 'QuotaExceededError'); } },
     configurable: true,
   });
   Object.defineProperty(globalThis, 'indexedDB', { value: undefined, configurable: true });
 }
-const modulePromise = import('/src/model-cache.js');
+if (fault.includes('idb-unavailable')) Object.defineProperty(globalThis, 'indexedDB', { value: undefined, configurable: true });
+if (fault.includes('entry-limit')) {
+  const nativePut = IDBObjectStore.prototype.put;
+  IDBObjectStore.prototype.put = function(value, key) {
+    const size = value instanceof ArrayBuffer ? value.byteLength : value instanceof Blob ? value.size : value?.blob?.size || 0;
+    if (size > 4 * 1024 * 1024) throw new DOMException('Single-entry storage limit', 'QuotaExceededError');
+    return nativePut.call(this, value, key);
+  };
+  const nativeCachePut = Cache.prototype.put;
+  Cache.prototype.put = async function(key, response) {
+    if ((await response.clone().blob()).size > 4 * 1024 * 1024) throw new DOMException('Single-entry storage limit', 'QuotaExceededError');
+    return nativeCachePut.call(this, key, response);
+  };
+}
+if (fault.includes('corrupt-chunk')) {
+  const nativePut = IDBObjectStore.prototype.put;
+  IDBObjectStore.prototype.put = function(value, key) {
+    return nativePut.call(this, this.name === 'chunks' && String(key).endsWith(':00000001') ? new ArrayBuffer(1) : value, key);
+  };
+}
+const modulePromise = Promise.resolve(cacheModule);
 self.onmessage = async ({ data }) => {
+  if (data.type === 'pocket-cache-port') return;
   const controller = new AbortController();
   let timer;
   if (data.abortAfter) timer = setTimeout(() => controller.abort(), data.abortAfter);
@@ -63,14 +87,15 @@ test.beforeAll(async () => {
   assetServer = createServer(async (request, response) => {
     const url = new URL(request.url, 'http://fixture.invalid');
     if (url.pathname !== '/binary') { response.writeHead(404); response.end(); return; }
+    const payload = url.searchParams.has('large') ? largeBytes : bytes;
     increment(url.searchParams.get('key'), 'binary');
     response.writeHead(200, {
       'content-type': 'application/octet-stream',
-      'content-length': bytes.length,
+      'content-length': payload.length,
       'cache-control': 'no-store',
       'access-control-allow-origin': '*',
     });
-    if (!url.searchParams.has('slow')) { response.end(bytes); return; }
+    if (!url.searchParams.has('slow')) { response.end(payload); return; }
     response.write(bytes.subarray(0, 8192));
     for (let offset = 8192; offset < bytes.length && !response.destroyed; offset += 8192) {
       await new Promise(resolve => setTimeout(resolve, 20));
@@ -119,26 +144,32 @@ test.afterAll(async () => {
   await Promise.all([pageServer, assetServer].filter(Boolean).map(server => new Promise(resolve => server.close(resolve))));
 });
 
-async function fetchInFreshWorker(page, { key, fault = '', abortAfter = 0, slow = false }) {
+async function fetchInFreshWorker(page, { key, fault = '', abortAfter = 0, slow = false, large = false, bridge = false }) {
   return page.evaluate(async options => {
     await window.cacheReady;
     const worker = new Worker(`/cache-worker.js?fault=${options.fault}`, { type: 'module' });
+    const disconnect = options.bridge ? (await import('/src/model-cache.js')).connectWorkerCache(worker) : null;
     try {
       return await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('Fixture worker timed out')), 15000);
+        const timer = setTimeout(() => reject(new Error('Fixture worker timed out')), 45000);
         worker.onmessage = ({ data }) => { clearTimeout(timer); resolve(data); };
         worker.onerror = event => { clearTimeout(timer); reject(new Error(event.message)); };
         const url = new URL('/model.onnx', location.origin);
         url.searchParams.set('key', options.key);
         if (options.slow) url.searchParams.set('slow', '1');
+        if (options.large) url.searchParams.set('large', '1');
         worker.postMessage({ url: url.href, abortAfter: options.abortAfter });
       });
-    } finally { worker.terminate(); }
-  }, { key, fault, abortAfter, slow });
+    } finally { disconnect?.(); worker.terminate(); }
+  }, { key, fault, abortAfter, slow, large, bridge });
 }
 
 function expectFullModel(result) {
   expect(result).toMatchObject({ ok: true, status: 200, length: bytes.length, digest: expectedDigest });
+}
+
+function expectLargeModel(result) {
+  expect(result).toMatchObject({ ok: true, status: 200, length: largeBytes.length, digest: largeDigest });
 }
 
 for (const browserName of ['chromium', 'firefox', 'webkit']) {
@@ -200,6 +231,55 @@ for (const browserName of ['chromium', 'firefox', 'webkit']) {
       await page.reload();
       expectFullModel(await fetchInFreshWorker(page, { key, fault: 'cache-unavailable' }));
       expect(counts.get(key)).toEqual({ redirect: 1, binary: 1 });
+    });
+
+    for (const fault of ['entry-limit', 'idb-unavailable,entry-limit']) {
+      engineTest(`persists an 18 MiB model despite a 4 MiB entry limit (${fault})`, async ({ cacheSession }, testInfo) => {
+        engineTest.setTimeout(90000);
+        let page = cacheSession.page;
+        const key = `${browserName}-large-${fault}`;
+        await page.goto(fixtureOrigin);
+        const first = await fetchInFreshWorker(page, { key, large: true, fault });
+        expectLargeModel(first);
+        expect(first.events.some(event => event.type === 'stored' && event.verified)).toBe(true);
+        page = await cacheSession.restart();
+        await page.goto(fixtureOrigin);
+        const restarted = await fetchInFreshWorker(page, { key, large: true, fault });
+        expectLargeModel(restarted);
+        expect(restarted.cacheSource).toBe('disk');
+        expect(counts.get(key)).toEqual({ redirect: 1, binary: 1 });
+        await testInfo.attach('large-file-cache.json', { body: JSON.stringify({ first, restarted, network: counts.get(key) }), contentType: 'application/json' });
+      });
+    }
+
+    engineTest('page-owned chunk storage works when worker storage is blocked', async ({ cacheSession }, testInfo) => {
+      engineTest.setTimeout(90000);
+      let page = cacheSession.page;
+      const key = `${browserName}-page-owned-large`;
+      await page.goto(fixtureOrigin);
+      const first = await fetchInFreshWorker(page, { key, large: true, fault: 'storage-full', bridge: true });
+      expectLargeModel(first);
+      expect(first.events.some(event => event.type === 'stored' && event.verified)).toBe(true);
+      page = await cacheSession.restart();
+      await page.goto(fixtureOrigin);
+      const restarted = await fetchInFreshWorker(page, { key, large: true, fault: 'storage-full', bridge: true });
+      expectLargeModel(restarted);
+      expect(restarted.cacheSource).toBe('disk');
+      expect(counts.get(key)).toEqual({ redirect: 1, binary: 1 });
+      await testInfo.attach('page-owned-cache.json', { body: JSON.stringify({ first, restarted, network: counts.get(key) }), contentType: 'application/json' });
+    });
+
+    engineTest('failed readback never announces a saved large model', async ({ cachePage: page }) => {
+      engineTest.setTimeout(90000);
+      const key = `${browserName}-corrupt-chunk`;
+      await page.goto(fixtureOrigin);
+      const first = await fetchInFreshWorker(page, { key, large: true, fault: 'corrupt-chunk' });
+      expectLargeModel(first);
+      expect(first.events.some(event => event.type === 'stored')).toBe(false);
+      expect(first.events.some(event => event.type === 'unavailable' && event.reason === 'verification')).toBe(true);
+      await page.reload();
+      expectLargeModel(await fetchInFreshWorker(page, { key, large: true, fault: 'corrupt-chunk' }));
+      expect(counts.get(key)).toEqual({ redirect: 2, binary: 2 });
     });
 
     engineTest('reuses existing Transformers model files without downloading or duplicating them', async ({ cachePage: page }, testInfo) => {

@@ -1,6 +1,7 @@
 import * as ort from 'onnxruntime-web/webgpu';
 import { EventTokenizer, GenerationCancelled, generateSong, validateOptions } from './sampler.js';
 import { createModelCache, cachedFetch, loadCachedRuntime } from './model-cache.js';
+import { isWebKitEngine, WEBKIT_CPU_REASON } from './browser-policy.js';
 
 const SITE_BASE = new URL(import.meta.env.BASE_URL, self.location.origin);
 const MODEL_TIMEOUT_MS = 300_000;
@@ -143,6 +144,13 @@ async function createSession(bytes, backend, job) {
 
 async function initialize(manifestInput, backend, job) {
   if (!['auto', 'webgpu', 'wasm'].includes(backend)) throw new Error('Backend must be auto, webgpu, or wasm.');
+  if (isWebKitEngine()) {
+    if (backend === 'webgpu') throw new Error(`${WEBKIT_CPU_REASON} Choose Automatic or CPU.`);
+    if (backend === 'auto') {
+      backend = 'wasm';
+      status(job.id, 'Preparing local CPU inference…', { phase: 'fallback', backend: 'wasm', fallbackReason: WEBKIT_CPU_REASON });
+    }
+  }
   const manifest = await resolveManifest(manifestInput, job);
   const key = JSON.stringify([manifest.modelUrl, manifest.tokenizerUrl, manifest.runtimeBaseUrl,
     manifest.modelSha256, manifest.tokenizerSha256, manifest.contextLength]);

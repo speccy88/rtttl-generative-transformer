@@ -1,0 +1,133 @@
+{
+  "date": "2026-10-03",
+  "scope": "Production build on the local Apple M2 with Playwright 1.63.0. Model inference ran on this Mac, not on a remote service. Normal browser profiles at a 390x844 viewport; WebKit also uses mobile and touch mode.",
+  "observed_failures": [
+    "The previous published app returned to the fixed Hello, daydream. demo after a reload during naming and lost the four generated library entries. Reproduced with the worker protocol fixture against commit 78f05ec.",
+    "Real WebKit naming completed four titles on WebGPU, then its worker teardown crashed the page on reload or worker shutdown. Native reports identified EXC_BAD_ACCESS in WebCore::GPUDevice::contextDestroyed via InspectorInstrumentation. Normal session disposal, queue completion, GPUDevice.destroy and device.lost did not resolve that reproduction.",
+    "The physical iPhone failure was not directly observed; its exact cause is not established by the Mac reproduction."
+  ],
+  "changes": {
+    "cache": "Page-owned storage with 4 MiB ArrayBuffer blocks in IndexedDB, chunked Cache API fallback, verified commit manifests, immutable revision keys, legacy cache reads, incomplete-write cleanup and bounded memory fallback. A denied IDB read does not skip the backup store.",
+    "library": "Save each complete score and partial title before optional inference. Restore validated scores on reload; merge title changes by stable ID without replacing notes or shrinking the batch. Recover interrupted jobs on pagehide/pageshow.",
+    "naming": "Remember the last 64 titles across batches and reloads; reject copied examples and near-duplicates; try twice and then use an explicitly recorded measured-character fallback.",
+    "title_model": {
+      "id": "onnx-community/SmolLM2-135M-Instruct-ONNX",
+      "revision": "b8a5c0f183b78c55955a5364f610c36668b5e681",
+      "dtype": "q8",
+      "weight_bytes": 135658354,
+      "tokenizer_bytes": 3522656,
+      "approximate_model_download_mb": 140
+    },
+    "browser_policy": "Safari/WebKit, including iOS browser shells, uses local CPU inference for both models to avoid the reproduced GPU teardown crash. Chromium/Gecko retain GPU selection. Older Safari without WebGPU uses the matching plain WASM runtime.",
+    "memory": "Dispose the optional title pipeline after each batch and load its next instance from persistent model storage."
+  },
+  "checks": {
+    "build": "passed",
+    "javascript_unit_tests": {
+      "passed": 45,
+      "failed": 0
+    },
+    "ordinary_browser_suite": {
+      "passed": 49,
+      "optional_real_checks_skipped": 9,
+      "failed": 0,
+      "cache_cases": 28,
+      "studio_cases": 21
+    },
+    "cache_regression_scope": [
+      "18 MiB plus 73-byte fixture under a simulated 4 MiB storage-entry cap",
+      "Exact bytes after reload and browser restart in all three engines",
+      "Worker storage blocked while page-owned storage remains usable",
+      "Cache API fallback when IndexedDB is blocked or denied",
+      "Failed readback never reports a saved model",
+      "Aborted partial downloads are not cache hits",
+      "Legacy cache reuse and quota failure handling"
+    ],
+    "library_regression_scope": [
+      "Four-song batches retain identities and exact RTTTL musical bytes during naming",
+      "Partial, invalid, failed and cancelled title responses retain all scores",
+      "Reload during naming restores complete scores and partial titles without restarting models",
+      "Explicit pagehide/pageshow persisted events cover late manifest completion, terminated melody workers, partial names and restartable controls"
+    ],
+    "real_multisong_naming_and_reload": [
+      {
+        "browser": "chromium",
+        "batches": 2,
+        "songs_per_batch": 4,
+        "events_per_song": 24,
+        "melody_selection": "wasm",
+        "title_backends": [
+          "wasm",
+          "wasm"
+        ],
+        "unique_titles": 8,
+        "llm_titles": 8,
+        "measured_character_fallback_titles": 0,
+        "cold_model_and_runtime_requests": 17,
+        "reload_model_and_runtime_requests": 0,
+        "blocked_request_attempts": 0,
+        "browser_errors": []
+      },
+      {
+        "browser": "firefox",
+        "batches": 2,
+        "songs_per_batch": 4,
+        "events_per_song": 24,
+        "melody_selection": "wasm",
+        "title_backends": [
+          "wasm",
+          "wasm"
+        ],
+        "unique_titles": 8,
+        "llm_titles": 7,
+        "measured_character_fallback_titles": 1,
+        "cold_model_and_runtime_requests": 17,
+        "reload_model_and_runtime_requests": 0,
+        "blocked_request_attempts": 0,
+        "browser_errors": []
+      },
+      {
+        "browser": "webkit",
+        "batches": 2,
+        "songs_per_batch": 4,
+        "events_per_song": 24,
+        "melody_selection": "auto",
+        "title_backends": [
+          "wasm",
+          "wasm"
+        ],
+        "unique_titles": 8,
+        "llm_titles": 7,
+        "measured_character_fallback_titles": 1,
+        "cold_model_and_runtime_requests": 17,
+        "reload_model_and_runtime_requests": 0,
+        "blocked_request_attempts": 0,
+        "browser_errors": []
+      }
+    ],
+    "real_multisong_invariants": [
+      "IDs, song count and exact RTTTL musical bytes unchanged by naming",
+      "Library titles restored on reload",
+      "Second batch completes while all model and runtime requests are blocked",
+      "No repeated title across two four-song batches"
+    ],
+    "additional_real_chromium_tests": {
+      "passed": 3,
+      "failed": 0,
+      "scope": [
+        "Melody reuse within the tab and after reload",
+        "Optional title model cached in multiple committed blocks and reused with model networking blocked",
+        "Real melody generation using a non-fallback hardware WebGPU adapter"
+      ]
+    }
+  },
+  "limitations": [
+    "No physical iPhone was available. These are Mac browser-engine tests, not a guarantee for every iOS release or device.",
+    "The GPU teardown diagnosis is from automated WebKit runs; the CPU policy is a compatibility workaround.",
+    "Private browsing, storage eviction, full storage or clearing site data can still require downloads. Storage failures are reported instead of promising persistence.",
+    "The smaller title model can produce weak suggestions; two of 24 titles in the recorded multi-song tests used the explicitly marked fallback.",
+    "Model files are cached; the site shell still needs to be reachable after reload.",
+    "The updated title model needs its own initial download; the previous model files are not usable as this model."
+  ],
+  "local_evidence_directory": "evidence/ios_fix_v2/"
+}

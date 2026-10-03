@@ -1,9 +1,32 @@
-import { TITLE_MODEL, TITLE_REVISION, describeMelody, applyTitle } from './title-utils.js';
+import { TITLE_MODEL, TITLE_REVISION, TITLE_DTYPE, createTitlePrompt, EXAMPLE_TITLES, extractGeneratedTitle, isRepeatedTitle, applyTitle, fallbackTitle } from './title-utils.js';
 import { createModelCache, runtimePaths } from './model-cache.js';
+import { isWebKitEngine } from './browser-policy.js';
 
 let generator = null;
 let backend = null;
 let running = false;
+let recentTitles = [], recentNames = [];
+let titleEndTokens;
+let gpuDevice = null;
+
+async function releaseTitleModel() {
+  // Finish native work while the worker's execution context is still alive.
+  // Release the session and explicitly lose its device before announcing
+  // completion. WebKit still needs the CPU policy: normal disposal alone did
+  // not prevent its native GPU teardown crash in the full inference test.
+  const activeGenerator = generator, activeDevice = gpuDevice;
+  generator = null;
+  gpuDevice = null;
+  try {
+    if (activeDevice) await activeDevice.queue.onSubmittedWorkDone().catch(() => {});
+    if (activeGenerator) await activeGenerator.dispose();
+  } finally {
+    if (activeDevice) {
+      activeDevice.destroy();
+      await activeDevice.lost;
+    }
+  }
+}
 
 self.addEventListener('message', async ({ data }) => {
   if (data.type !== 'title') return;
@@ -32,10 +55,10 @@ self.addEventListener('message', async ({ data }) => {
       env.backends.onnx.wasm.numThreads = 1;
       env.backends.onnx.wasm.proxy = false;
       env.backends.onnx.wasm.wasmPaths = runtimePaths(runtimeBaseUrl);
-      const adapter = await navigator.gpu?.requestAdapter().catch(() => null);
+      const adapter = isWebKitEngine() ? null : await navigator.gpu?.requestAdapter().catch(() => null);
       backend = adapter ? 'webgpu' : 'wasm';
       const load = () => pipeline('text-generation', TITLE_MODEL, {
-        revision: TITLE_REVISION, dtype: 'q4', device: backend,
+        revision: TITLE_REVISION, dtype: TITLE_DTYPE, device: backend,
         progress_callback: event => {
           if (event.status === 'progress') progress({ message: cachedFiles.has(event.file?.split('/').at(-1))
             ? 'Loading the optional title model from browser storage…' : 'Downloading the optional title model…',
@@ -50,37 +73,48 @@ self.addEventListener('message', async ({ data }) => {
         progress({ message: 'Using CPU for titles because this GPU could not load the model.' });
         generator = await load();
       }
+      if (backend === 'webgpu') gpuDevice = await env.backends.onnx.webgpu.device;
+      const configuredEnd = generator.model.generation_config?.eos_token_id ?? generator.model.config.eos_token_id ?? generator.tokenizer.eos_token_id;
+      const lineBreak = generator.tokenizer.encode('\n', { add_special_tokens: false });
+      titleEndTokens = [...new Set([...(Array.isArray(configuredEnd) ? configuredEnd : [configuredEnd]),
+        ...(lineBreak.length === 1 ? lineBreak : [])].filter(Number.isInteger))];
     }
-    const usedTitles = new Set(), usedNames = new Set(), named = [];
+    const usedTitles = new Set([...recentTitles, ...(data.usedTitles || [])].slice(-64).map(title => String(title).toLowerCase()));
+    const usedNames = new Set([...recentNames, ...(data.usedNames || [])].slice(-64).map(name => String(name).toLowerCase()));
+    const named = [];
     for (let index = 0; index < songs.length; index++) {
       const song = songs[index];
       progress({ message: `Naming melody ${index+1} of ${songs.length}…`, songIndex: index, numSongs: songs.length });
       let result = null;
       for (let attempt = 0; attempt < 2 && !result; attempt++) {
-        const avoid = Array.from(usedTitles).slice(-5).join(', ');
-        const messages = [
-          { role: 'system', content: 'Give each instrumental tune an evocative title matching its character. Reply with the title only, in two to four words. Avoid generic titles containing Melody or Song.' },
-          { role: 'user', content: 'Fast, high notes with playful jumps.' },
-          { role: 'assistant', content: 'Pixel Fireflies' },
-          { role: 'user', content: 'Slow, low notes with a gentle falling movement.' },
-          { role: 'assistant', content: 'Velvet Moon' },
-          { role: 'user', content: 'Moderate, bright rhythmic notes, rising and falling.' },
-          { role: 'assistant', content: 'Sunlit Steps' },
-          { role: 'user', content: `${describeMelody(song)}.${avoid ? ` Use different words from: ${avoid}.` : ''}${attempt ? ' Give a different, shorter title.' : ''}` },
-        ];
-        const outputs = await generator(messages, { max_new_tokens: 20, do_sample: true,
-          temperature: 0.65, top_p: 0.9, repetition_penalty: 1.15 });
+        const outputs = await generator(createTitlePrompt(song, usedTitles, attempt), { max_new_tokens: 18, return_full_text: false, do_sample: true,
+          temperature: attempt ? 0.95 : 0.8, top_p: 0.92, repetition_penalty: 1.15, eos_token_id: titleEndTokens });
         const text = outputs[0].generated_text;
-        const raw = Array.isArray(text) ? text.at(-1).content : text;
-        try { result = applyTitle(song, raw, usedTitles, usedNames); } catch { /* One bounded retry. */ }
+        // Completion models may continue the next Sound:/Title: record. Only the
+        // first answer line belongs to this melody; it still passes validation.
+        try {
+          const raw = extractGeneratedTitle(Array.isArray(text) ? text.at(-1).content : text);
+          if (isRepeatedTitle(raw, EXAMPLE_TITLES)) continue;
+          result = applyTitle(song, raw, usedTitles, usedNames);
+        } catch { /* One bounded retry. */ }
       }
-      result ||= { ...song, naming: { status:'fallback', reason:'The model did not suggest a usable title.' } };
+      result ||= fallbackTitle(song, usedTitles, usedNames);
       named.push(result);
-      progress({ message: result.naming.status === 'named' ? `Named “${result.title}”` : 'Kept the melody’s existing name.',
+      recentTitles = Array.from(usedTitles).slice(-64);
+      recentNames = Array.from(usedNames).slice(-64);
+      progress({ message: result.title ? `Named “${result.title}”` : 'Kept the melody’s existing name.',
         songIndex: index, numSongs: songs.length, title: result.title, songId: song.id, song: result, backend });
     }
-    self.postMessage({ type: 'done', id, songs: named, backend });
+    progress({ message: 'Finishing your titles…', phase: 'release' });
+    await releaseTitleModel();
+    self.postMessage({ type: 'done', id, songs: named, backend, disposed: true });
   } catch (error) {
-    self.postMessage({ type: 'error', id, message: `Title generation unavailable: ${error.message}. Your melodies are preserved.` });
-  } finally { running = false; }
+    try { await releaseTitleModel(); } catch { /* Preserve the original failure. */ }
+    self.postMessage({ type: 'error', id, message: `Title generation unavailable: ${error.message}. Your melodies are preserved.`, disposed: true });
+  } finally {
+    running = false;
+    // Closing ourselves lets the current callback unwind. The page must drop its
+    // reference without force-terminating this already-disposed worker.
+    self.close();
+  }
 });

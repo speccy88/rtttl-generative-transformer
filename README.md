@@ -6,7 +6,7 @@ A small, real **decoder-only Transformer trained from random weights** to genera
 Make melodies directly in your browser with WebGPU or a local CPU fallback.
 Choose a melody guide, tempo, key and length; listen with the animated piano
 roll; and download RTTTL text, WAV or MP3. Optional automatic titles use a
-separate local model (about 800 MB), downloaded only after you enable naming.
+separate local model (about 140 MB), downloaded only after you enable naming.
 No installation, account or inference server is needed. See the
 [web app documentation](web/README.md) for development and deployment.
 

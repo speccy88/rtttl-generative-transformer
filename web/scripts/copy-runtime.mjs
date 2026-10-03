@@ -13,9 +13,11 @@ for (const [name, resolver] of [['ort', require], ['transformers', transformerRe
   const target = resolve('public/runtime', name);
   await rm(target, { recursive: true, force: true });
   await mkdir(target, { recursive: true });
-  // Both locked WebGPU entrypoints use asyncify for WebGPU and WASM execution.
-  // Do not copy unused WebGL/all-backend bundles into the public distribution.
-  const files = ['ort-wasm-simd-threaded.asyncify.mjs', 'ort-wasm-simd-threaded.asyncify.wasm'];
+  // Asyncify supports modern WebGPU/CPU execution. Older Safari without WebGPU
+  // needs the plain CPU build, matching Transformers.js' runtime selection.
+  // Each pair must come from its own worker's locked ORT version.
+  const files = ['', '.asyncify'].flatMap(suffix => ['mjs', 'wasm']
+    .map(extension => `ort-wasm-simd-threaded${suffix}.${extension}`));
   for (const file of files) await copyFile(resolve(source, file), resolve(target, file));
   console.log(`Prepared ${files.length} ${name} runtime assets`);
 }

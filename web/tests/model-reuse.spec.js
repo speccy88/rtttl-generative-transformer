@@ -3,8 +3,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-// Model-sized Blobs need a normal browser profile. Incognito storage has
-// additional memory restrictions which do not represent a normal Safari visit.
+// Use normal website-data storage; private contexts can impose extra limits
+// which do not represent a normal Safari visit.
 const normalProfileTest = test.extend({
   context: async ({ launchOptions, baseURL }, use) => {
     const profile = await mkdtemp(join(tmpdir(), 'pocket-title-cache-'));
@@ -49,7 +49,7 @@ test('optional real model files are reused after repeated generation and reload'
 });
 
 normalProfileTest('optional real title model is reused after a page reload without model networking', async ({ page }) => {
-  test.skip(process.env.PLAYWRIGHT_REAL_TITLES !== '1', 'Enable the optional approximately 800 MB title download explicitly.');
+  test.skip(process.env.PLAYWRIGHT_REAL_TITLES !== '1', 'Enable the optional title model download explicitly.');
   test.setTimeout(360000);
   const downloads = [], messages = [];
   page.on('request', request => { if (/\/resolve\/|\/runtime\//.test(request.url())) downloads.push(request.url()); });
@@ -62,9 +62,10 @@ normalProfileTest('optional real title model is reused after a page reload witho
   });
   async function composeNamed() {
     await page.selectOption('#song-count', '1'); await page.selectOption('#length', '24');
-    await page.locator('.naming-option').click();
+    if (!(await page.locator('#name-songs').isChecked())) await page.locator('.naming-option').click();
     await page.getByRole('button', { name: 'Make some music' }).click();
-    await expect(page.locator('#generate-button')).toBeEnabled({ timeout: 300000 });
+    await expect(page.locator('#generation-message')).toContainText('1 melody, made on your device.', { timeout: 300000 });
+    await expect(page.locator('.song-row')).toHaveCount(1);
     await expect(page.getByRole('alert')).not.toBeVisible();
     await expect(page.locator('#now-playing-title')).not.toHaveText('Melody 01');
   }
@@ -76,10 +77,20 @@ normalProfileTest('optional real title model is reused after a page reload witho
       const cache = await caches.open(name);
       return { name, files: await Promise.all((await cache.keys()).map(async key => ({ url: key.url, bytes: (await cache.match(key)).headers.get('content-length') }))) };
     })),
+    manifests: await new Promise((resolve, reject) => {
+      const request = indexedDB.open('pocket-composer-models-v1', 2);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const records = db.transaction('manifests').objectStore('manifests').getAll();
+        records.onsuccess = () => { const files = records.result.map(record => ({ size: record.size, chunks: record.sizes.length })); db.close(); resolve(files); };
+        records.onerror = () => { db.close(); reject(records.error); };
+      };
+    }),
   }));
   await test.info().attach('title-storage.json', { body: JSON.stringify(storage, null, 2), contentType: 'application/json' });
-  expect(storage.caches.flatMap(cache => cache.files).some(file => file.url.includes('model_q4.onnx') && Number(file.bytes) > 100000000)).toBe(true);
-  expect(downloads.some(url => url.includes('model_q4.onnx'))).toBe(true);
+  expect(storage.manifests.some(file => file.size > 100000000 && file.chunks > 1)).toBe(true);
+  expect(downloads.some(url => /\/onnx\/.*\.onnx/.test(url))).toBe(true);
   const firstRequests = [...downloads]; const firstCount = downloads.length;
   await page.reload(); messages.length = 0;
   await page.route('**/*', route => /\/resolve\/|\/runtime\//.test(route.request().url()) ? route.abort('internetdisconnected') : route.continue());

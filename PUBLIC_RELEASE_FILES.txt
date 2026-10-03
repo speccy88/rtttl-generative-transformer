@@ -31,6 +31,7 @@ results/browser_cache_validation.json
 results/browser_validation.json
 results/experiment.json
 results/mps_finetune.json
+results/mobile_browser_fix_validation.json
 results/naming_validation.json
 results/publication_validation.json
 results/release_validation.json
@@ -126,6 +127,8 @@ web/public/vendor/runtime-license-sources.json
 web/scripts/copy-runtime.mjs
 web/src/audio.js
 web/src/audio.test.js
+web/src/browser-policy.js
+web/src/browser-policy.test.js
 web/src/main.js
 web/src/melody-worker.js
 web/src/model-cache.js
@@ -141,6 +144,7 @@ web/src/title-utils.test.js
 web/src/title-worker.js
 web/src/titles.js
 web/tests/cache.spec.js
+web/tests/mobile-titles.spec.js
 web/tests/model-reuse.spec.js
 web/tests/portable-model-cache.spec.js
 web/tests/studio.spec.js

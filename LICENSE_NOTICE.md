@@ -8,7 +8,9 @@ The browser app adapts the MIT-licensed RTTTL Play and RTTTL Parse libraries
 and distributes additional browser dependencies and fonts with their own
 licenses. See [web third-party notices](web/THIRD_PARTY_NOTICES.md), including
 the LGPL MP3 encoder's corresponding source. Its optional title model is
-Qwen2.5-0.5B-Instruct (Apache-2.0), downloaded separately from Hugging Face;
+[SmolLM2-135M-Instruct](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct)
+(Apache-2.0), downloaded separately using the
+[pinned ONNX export](https://huggingface.co/onnx-community/SmolLM2-135M-Instruct-ONNX/tree/b8a5c0f183b78c55955a5364f610c36668b5e681);
 the Python title model described below remains separate.
 
 Optional title generation downloads the separate Qwen2.5-0.5B-Instruct model

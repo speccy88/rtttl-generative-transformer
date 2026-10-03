@@ -157,6 +157,220 @@ test('naming stays unloaded when a streamed melody completes without opt-in', as
   expect(requests.filter(url => /huggingface|hf\.co|title-worker|\/titles-|transformers|onnx-community|SmolLM/i.test(url))).toEqual([]);
 });
 
+async function installBatchWorkers(page) {
+  await page.addInitScript(() => {
+    window.__titleRequests = [];
+    window.__melodyBatches = [];
+    window.__workerCreations = 0;
+    window.__forcedTitleStops = 0;
+    const words = ['Glass Orchard', 'Copper Comet', 'Harbor Lanterns', 'Drifting Kites', 'Amber Sketch', 'Silver Arcade', 'Quiet Meadow', 'Coral Skyline'];
+    class BatchProtocolStub extends EventTarget {
+      constructor(url) { super(); this.titles = String(url).includes('title-worker'); window.__workerCreations++; }
+      emit(data) { if (!this.stopped) this.dispatchEvent(new MessageEvent('message', { data: structuredClone(data) })); }
+      postMessage(message) {
+        if (message.type === 'generate') {
+          const batch = window.__melodyBatches.length;
+          const songs = Array.from({ length: message.options.numSongs }, (_, index) => ({
+            id: `${message.id}-${index}`, name: `Melody0${index + 1}`,
+            rtttl: `Melody0${index + 1}:d=8,o=5,b=${96 + batch * 10 + index}:c,${['d', 'e', 'f', 'g'][index]},g,4c6`,
+            settings: { profile: 'mixed', tonic: 'C', mode: 'major' },
+          }));
+          window.__melodyBatches.push(structuredClone(songs));
+          const complete = () => {
+            for (const song of songs) this.emit({ type: 'song', id: message.id, song });
+            this.emit({ type: 'done', id: message.id, songs, backend: 'wasm', cancelled: false });
+          };
+          window.__completeMelodies = complete;
+          if (!window.__holdMelodyResponses) setTimeout(complete, 5);
+        }
+        if (message.type !== 'title') return;
+        window.__titleRequests.push(structuredClone(message));
+        const batch = window.__titleRequests.length - 1;
+        const named = message.songs.map((song, index) => {
+          const title = words[(batch * 4 + index) % words.length];
+          const name = title.replaceAll(' ', '').slice(0, 11);
+          return { ...song, title, name, rtttl: name + song.rtttl.slice(song.rtttl.indexOf(':')), naming: { status: 'named' } };
+        });
+        window.__naming = {
+          progress: index => this.emit({ type: 'progress', id: message.id, songId: named[index].id,
+            title: named[index].title, song: named[index], message: `Named “${named[index].title}”` }),
+          fallback: index => this.emit({ type: 'progress', id: message.id, songId: named[index].id,
+            title: named[index].title, song: { ...named[index], naming: { status: 'fallback', strategy: 'musical-character' } } }),
+          retainName: index => this.emit({ type: 'progress', id: message.id, songId: message.songs[index].id,
+            song: { ...message.songs[index], naming: { status: 'fallback', reason: 'No distinct title was available.' } } }),
+          done: (indices = named.map((_, index) => index)) => this.emit({ type: 'done', id: message.id, songs: indices.map(index => named[index]), disposed: true }),
+          error: () => this.emit({ type: 'error', id: message.id, message: 'Simulated title worker stopped.' }),
+          corrupt: () => this.emit({ type: 'progress', id: message.id, songId: named[0].id,
+            title: named[0].title, song: { ...named[0], rtttl: 'Wrong:d=4,o=4,b=60:a,a,a,a' } }),
+        };
+      }
+      terminate() { this.stopped = true; if (this.titles) window.__forcedTitleStops++; }
+    }
+    window.Worker = BatchProtocolStub;
+  });
+  await page.route('**/model-manifest.json', route => route.fulfill({ json: { modelUrl: 'unused.onnx', tokenizerUrl: 'unused.json' } }));
+}
+
+async function startNamedBatch(page, batchNumber = 1) {
+  await page.locator('#song-count').selectOption('4');
+  if (!(await page.locator('#name-songs').isChecked())) await page.locator('.naming-option').click();
+  await expect(page.locator('#name-songs')).toBeChecked();
+  await page.getByRole('button', { name: 'Make some music' }).click();
+  await expect.poll(() => page.evaluate(() => window.__titleRequests.length)).toBe(batchNumber);
+  await expect(page.locator('.song-row')).toHaveCount(4);
+}
+
+async function libraryIds(page) {
+  return page.locator('.song-row').evaluateAll(rows => rows.map(row => row.dataset.songId));
+}
+
+async function assertSavedScores(page, expected) {
+  for (let index = 0; index < expected.length; index++) {
+    const pending = page.waitForEvent('download');
+    await page.locator('.song-txt-download').nth(index).click();
+    const saved = (await readFile(await (await pending).path())).toString().trim();
+    expect(saved.slice(saved.indexOf(':'))).toBe(expected[index].rtttl.slice(expected[index].rtttl.indexOf(':')));
+  }
+}
+
+for (const browserName of ['chromium', 'firefox', 'webkit']) {
+const engineTest = test.extend({ browserName });
+engineTest.describe(`${browserName} batch recovery`, () => {
+
+engineTest('four streamed melodies keep their identities and scores through naming and a second batch', async ({ page }) => {
+  await installBatchWorkers(page);
+  await page.goto('./');
+  const previousIds = [];
+  for (let batch = 0; batch < 2; batch++) {
+    await startNamedBatch(page, batch + 1);
+    const originals = await page.evaluate(index => window.__melodyBatches[index], batch);
+    const ids = originals.map(song => song.id);
+    expect(await libraryIds(page)).toEqual(ids);
+    expect(ids.some(id => previousIds.includes(id))).toBe(false);
+    previousIds.push(...ids);
+    for (let index = 0; index < 4; index++) {
+      await page.evaluate(index => window.__naming.progress(index), index);
+      await expect(page.locator('.song-naming')).toHaveCount(3 - index);
+      expect(await libraryIds(page)).toEqual(ids);
+    }
+    await page.evaluate(() => window.__naming.done());
+    await expect(page.locator('#generation-message')).toContainText('4 melodies, made on your device.');
+    await expect(page.locator('.song-row')).toHaveCount(4);
+    await expect(page.locator('#next-song')).toBeEnabled();
+    expect(await page.evaluate(() => window.__forcedTitleStops)).toBe(0);
+    expect(new Set(await page.locator('.song-title').allTextContents()).size).toBe(4);
+    await assertSavedScores(page, originals);
+  }
+  const history = await page.evaluate(() => window.__titleRequests[1].usedTitles);
+  expect(history).toEqual(expect.arrayContaining(['Glass Orchard', 'Copper Comet', 'Harbor Lanterns', 'Drifting Kites']));
+});
+
+engineTest('partial or invalid title responses cannot replace notes or shrink the completed batch', async ({ page }) => {
+  await installBatchWorkers(page);
+  await page.goto('./');
+  await startNamedBatch(page);
+  const originals = await page.evaluate(() => window.__melodyBatches[0]);
+  await page.evaluate(() => window.__naming.corrupt());
+  await expect(page.locator('.song-title').first()).toHaveText('Melody 01');
+  await page.evaluate(() => { window.__naming.progress(0); window.__naming.done([0]); });
+  await expect(page.locator('#generation-message')).toContainText('4 melodies, made on your device.');
+  expect(await libraryIds(page)).toEqual(originals.map(song => song.id));
+  await expect(page.locator('.song-naming')).toHaveCount(0);
+  await assertSavedScores(page, originals);
+});
+
+engineTest('title errors and cancellation keep all four songs and already completed names', async ({ page }) => {
+  await installBatchWorkers(page);
+  await page.goto('./');
+  for (const [batch, outcome] of ['error', 'cancel'].entries()) {
+    await startNamedBatch(page, batch + 1);
+    const originals = await page.evaluate(index => window.__melodyBatches[index], batch);
+    await page.evaluate(() => window.__naming.progress(0));
+    if (outcome === 'error') {
+      await page.evaluate(() => window.__naming.error());
+      await expect(page.getByRole('alert')).toContainText('automatic naming did not finish');
+    } else {
+      await page.getByRole('button', { name: 'Stop generation', exact: true }).click();
+      await expect(page.locator('#generation-message')).toContainText('4 completed melodies are ready to play.');
+    }
+    await expect(page.locator('#generate-button')).toBeEnabled();
+    await expect(page.locator('.song-naming')).toHaveCount(0);
+    expect(await libraryIds(page)).toEqual(originals.map(song => song.id));
+    await expect(page.locator('.song-title').first()).not.toHaveText('Melody 01');
+    await assertSavedScores(page, originals);
+  }
+});
+
+engineTest('reloading during title generation restores all completed scores and partial names without restarting models', async ({ page }) => {
+  await installBatchWorkers(page);
+  await page.goto('./');
+  await startNamedBatch(page);
+  const originals = await page.evaluate(() => window.__melodyBatches[0]);
+  await page.evaluate(() => { window.__naming.fallback(0); window.__naming.progress(1); window.__naming.retainName(2); });
+  await expect(page.locator('.song-naming')).toHaveCount(1);
+  await page.reload();
+  await expect(page.locator('.song-row')).toHaveCount(4);
+  expect(await libraryIds(page)).toEqual(originals.map(song => song.id));
+  await expect(page.locator('.song-title')).toHaveText(['Glass Orchard', 'Copper Comet', 'Melody 03', 'Melody 04']);
+  await expect(page.locator('#now-playing-title')).toHaveText('Glass Orchard');
+  await expect(page.locator('#generation-message')).toContainText('Generation was interrupted');
+  await expect(page.locator('.song-naming')).toHaveCount(0);
+  await expect(page.locator('#generate-button')).toBeEnabled();
+  expect(await page.evaluate(() => window.__workerCreations)).toBe(0);
+  await assertSavedScores(page, originals);
+  await startNamedBatch(page);
+  const history = await page.evaluate(() => window.__titleRequests[0].usedTitles);
+  expect(history).toEqual(expect.arrayContaining(['Glass Orchard', 'Copper Comet']));
+  const names = await page.evaluate(() => window.__titleRequests[0].usedNames);
+  expect(names).not.toContain('Melody03');
+});
+
+engineTest('returning from the back-forward cache recovers interrupted requests and workers', async ({ page }) => {
+  await installBatchWorkers(page);
+  await page.goto('./');
+  await page.evaluate(() => {
+    const realFetch = window.fetch;
+    window.fetch = (url, options) => String(url).includes('model-manifest.json')
+      ? new Promise(resolve => { window.__releaseManifest = () => resolve(new Response(JSON.stringify({ modelUrl: 'unused.onnx', tokenizerUrl: 'unused.json' }))); })
+      : realFetch(url, options);
+    window.__returnFromHistory = () => {
+      window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+    };
+  });
+  await page.getByRole('button', { name: 'Make some music' }).click();
+  await expect.poll(() => page.evaluate(() => typeof window.__releaseManifest)).toBe('function');
+  await page.evaluate(() => window.__returnFromHistory());
+  await expect(page.locator('#generate-button')).toBeEnabled();
+  await expect(page.locator('#generation-message')).toContainText('Generation was interrupted');
+  await page.evaluate(async () => { window.__releaseManifest(); await new Promise(resolve => setTimeout(resolve, 0)); });
+  expect(await page.evaluate(() => window.__workerCreations)).toBe(0);
+  await expect(page.locator('#generation-message')).toContainText('Generation was interrupted');
+
+  await page.evaluate(() => { window.__holdMelodyResponses = true; });
+  await page.getByRole('button', { name: 'Make some music' }).click();
+  await expect.poll(() => page.evaluate(() => window.__melodyBatches.length)).toBe(1);
+  await page.evaluate(() => { window.__returnFromHistory(); window.__completeMelodies(); window.__holdMelodyResponses = false; });
+  await expect(page.locator('#generate-button')).toBeEnabled();
+  await expect(page.locator('#generation-message')).toContainText('Generation was interrupted');
+
+  await startNamedBatch(page);
+  const ids = await libraryIds(page);
+  await page.evaluate(() => { window.__naming.progress(0); window.__returnFromHistory(); });
+  await expect(page.locator('#generate-button')).toBeEnabled();
+  await expect(page.locator('.song-naming')).toHaveCount(0);
+  expect(await libraryIds(page)).toEqual(ids);
+  await expect(page.locator('#generation-message')).toContainText('Generation was interrupted');
+  await expect(page.getByRole('alert')).not.toBeVisible();
+  await startNamedBatch(page, 2);
+  await page.evaluate(() => window.__naming.done());
+  await expect(page.locator('#generation-message')).toContainText('4 melodies, made on your device.');
+  expect(await libraryIds(page)).not.toEqual(ids);
+});
+
+});
+}
+
 test('optional real WebGPU generation uses a hardware adapter', async ({ page }) => {
   test.skip(process.env.PLAYWRIGHT_REAL_MODEL !== '1', 'Set PLAYWRIGHT_REAL_MODEL=1 to allow the melody model download and real local GPU inference.');
   test.setTimeout(180000);
