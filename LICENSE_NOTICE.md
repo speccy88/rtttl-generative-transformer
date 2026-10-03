@@ -4,6 +4,13 @@ No software license has been selected for the project source in this release. Pu
 
 Third-party dependencies retain their own licenses. This notice does not modify those licenses.
 
+The browser app adapts the MIT-licensed RTTTL Play and RTTTL Parse libraries
+and distributes additional browser dependencies and fonts with their own
+licenses. See [web third-party notices](web/THIRD_PARTY_NOTICES.md), including
+the LGPL MP3 encoder's corresponding source. Its optional title model is
+Qwen2.5-0.5B-Instruct (Apache-2.0), downloaded separately from Hugging Face;
+the Python title model described below remains separate.
+
 Optional title generation downloads the separate Qwen2.5-0.5B-Instruct model
 from Hugging Face; its pinned model repository declares Apache-2.0. Its weights
 are cached locally, not bundled with this project's source release. See the

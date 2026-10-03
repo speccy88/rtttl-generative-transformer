@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7f4ec" />
+    <meta name="description" content="Make tiny melodies with a local AI music model. Compose, play, and download RTTTL songs right in your browser with Pocket Composer." />
+    <title>Pocket Composer — little melodies, made by you</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23272235'/%3E%3Cpath d='M28 43V17l21-4v24' fill='none' stroke='%23f7f4ec' stroke-width='4'/%3E%3Cellipse cx='21' cy='44' rx='9' ry='6' fill='%23ff775d'/%3E%3Cellipse cx='42' cy='38' rx='9' ry='6' fill='%23ff775d'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <a class="skip-link" href="#composer">Skip to composer</a>
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="wordmark" href="#" aria-label="Pocket Composer home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>Pocket Composer<span class="brand-dot">♫</span></a>
+        <nav aria-label="Project links">
+          <a href="https://huggingface.co/charlie88agent/rtttl-generative-transformer" target="_blank" rel="noopener noreferrer">The model <span aria-hidden="true">↗</span></a>
+          <a href="https://github.com/speccy88/rtttl-generative-transformer" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero" aria-labelledby="hero-title">
+          <div class="hero-copy">
+            <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span> A little AI music playground</p>
+            <h1 id="hero-title">Small songs.<br /><em>Big character.</em></h1>
+            <p class="hero-description">A hook for your next game. A tune for no reason.<br class="desktop-break" /> Turn a little curiosity into your own tiny melody.</p>
+          </div>
+          <div class="hero-art" aria-hidden="true">
+            <svg class="music-art" viewBox="0 0 580 260" fill="none">
+              <path d="M8 141C104 36 169 57 266 116s182 128 303-12M8 157C104 52 169 73 266 132s182 128 303-12M8 173C104 68 169 89 266 148s182 128 303-12M8 189C104 84 169 105 266 164s182 128 303-12M8 205C104 100 169 121 266 180s182 128 303-12" stroke="#d5cfc5" stroke-width="1.3" />
+              <g class="note note-one" fill="#272235"><ellipse cx="138" cy="112" rx="17" ry="11" transform="rotate(-25 138 112)"/><path d="M151 107V34h4v73z"/><path d="M153 33c4 18 33 22 18 54 5-27-16-19-18-40z"/></g>
+              <g class="note note-two" fill="#ff765d"><ellipse cx="278" cy="145" rx="19" ry="12" transform="rotate(-25 278 145)"/><path d="M293 139V52h4v88z"/><path d="M295 51l70 20v16l-70-20z"/><path d="M361 75h4v86h-4z"/><ellipse cx="347" cy="166" rx="19" ry="12" transform="rotate(-25 347 166)"/></g>
+              <g class="note note-three" fill="#272235"><ellipse cx="467" cy="158" rx="17" ry="11" transform="rotate(-25 467 158)"/><path d="M480 153V75h4v79z"/></g>
+              <path d="m81 25 3 10 10 3-10 3-3 10-3-10-10-3 10-3z" fill="#b7bb75"/><path d="m401 32 2 7 7 2-7 2-2 7-2-7-7-2 7-2z" fill="#ff765d"/><circle cx="523" cy="67" r="4" fill="#b7bb75"/>
+              <path d="M203 211c16 8 24 9 38 9m-20-10 19 10-21 8" stroke="#272235" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <text x="262" y="229" fill="#787366" font-size="13" font-family="Georgia, serif" font-style="italic">your next earworm starts here</text>
+            </svg>
+            <div class="local-stamp"><span>Made right here</span><strong>on your<br />device.</strong><span>Private by design ↗</span></div>
+          </div>
+        </section>
+
+        <div class="studio-topline"><span><span class="tiny-cross" aria-hidden="true">✳</span> THE STUDIO</span><span class="hardware-status" id="hardware-status"><span class="status-dot"></span> Checking your browser</span></div>
+        <div class="studio-grid">
+          <section class="composer-panel" id="composer" aria-labelledby="composer-heading">
+            <div class="panel-heading"><span class="step-number">01</span><h2 id="composer-heading">Set the mood.</h2><span class="small-note" aria-hidden="true">♮</span></div>
+            <form id="composer-form">
+              <fieldset id="composer-controls" class="controls-fieldset">
+                <legend class="sr-only">Melody settings</legend>
+                <div class="field-group">
+                  <label class="field-label" id="style-label">A little direction <span class="field-hint">melody guide</span></label>
+                  <div class="style-grid" role="group" aria-labelledby="style-label">
+                    <button type="button" class="style-chip is-selected" data-profile="mixed" aria-pressed="true"><span aria-hidden="true">✳</span> Surprise me</button>
+                    <button type="button" class="style-chip" data-profile="pop-hook" aria-pressed="false"><span aria-hidden="true">♡</span> Pop hook</button>
+                    <button type="button" class="style-chip" data-profile="chiptune" aria-pressed="false"><span aria-hidden="true">▧</span> Chiptune</button>
+                    <button type="button" class="style-chip" data-profile="cinematic" aria-pressed="false"><span aria-hidden="true">◐</span> Cinematic</button>
+                    <button type="button" class="style-chip" data-profile="dance" aria-pressed="false"><span aria-hidden="true">↯</span> Dance</button>
+                    <button type="button" class="style-chip" data-profile="lullaby" aria-pressed="false"><span aria-hidden="true">☾</span> Lullaby</button>
+                    <button type="button" class="style-chip style-chip-wide" data-profile="none" aria-pressed="false"><span aria-hidden="true">⌁</span> Just the model <span class="chip-caption">no guide</span></button>
+                  </div>
+                  <p class="field-description" id="profile-description">A varied mix of all five melody guides, tempos, and keys.</p>
+                </div>
+                <div class="field-group tempo-group">
+                  <div class="label-line"><label class="field-label" for="tempo-mode">Tempo</label><select class="inline-select" id="tempo-mode"><option value="auto">Let the style decide</option><option value="fixed">Choose a BPM</option><option value="range">Choose a range</option></select></div>
+                  <div class="tempo-summary" id="tempo-summary"><span class="tempo-waves" aria-hidden="true">▂ ▅ ▃ ▇ ▄ ▆ ▂</span><span>A different pace for every melody</span></div>
+                  <div id="tempo-fixed" class="tempo-custom" hidden><input type="range" id="bpm-slider" min="40" max="220" value="112" aria-label="Tempo in BPM" /><label class="number-unit"><input type="number" id="bpm" min="25" max="900" value="112" aria-label="BPM" /><span>BPM</span></label></div>
+                  <div id="tempo-range" class="two-fields" hidden><label class="number-unit"><input type="number" id="bpm-min" min="25" max="900" value="70" aria-label="Minimum BPM" /><span>MIN</span></label><span class="range-dash">—</span><label class="number-unit"><input type="number" id="bpm-max" min="25" max="900" value="160" aria-label="Maximum BPM" /><span>MAX</span></label></div>
+                </div>
+                <div class="two-columns field-group">
+                  <label><span class="field-label">Key</span><select id="tonic"><option value="auto">Surprise me</option><option>C</option><option>C#</option><option>D</option><option>D#</option><option>E</option><option>F</option><option>F#</option><option>G</option><option>G#</option><option>A</option><option>A#</option><option>B</option></select></label>
+                  <label><span class="field-label">Mode</span><select id="mode"><option value="auto">Match the style</option><option value="major">Major · bright</option><option value="natural-minor">Minor · moody</option></select></label>
+                </div>
+                <div class="two-columns field-group">
+                  <label><span class="field-label">Melody length</span><select id="length"><option value="24">Short · up to 24 notes</option><option value="48" selected>Medium · up to 48</option><option value="72">Long · up to 72</option><option value="96">Extended · up to 96</option></select></label>
+                  <label><span class="field-label">How many?</span><select id="song-count"><option value="1">1 melody</option><option value="2">2 melodies</option><option value="4" selected>4 melodies</option><option value="5">5 melodies</option><option value="8">8 melodies</option></select></label>
+                </div>
+                <label class="naming-option"><input type="checkbox" id="name-songs" /><span class="toggle" aria-hidden="true"></span><span><strong>A name to match the tune <span aria-hidden="true">✦</span></strong><small id="naming-download-note">Optional local AI · ~800 MB model download</small></span></label>
+                <details class="advanced-settings"><summary>Fine-tune your experiment <span aria-hidden="true">+</span></summary><div class="advanced-body">
+                  <div class="label-line"><label class="field-label" for="seed">Seed</label><button class="text-button" type="button" id="shuffle-seed">↻ Shuffle</button></div>
+                  <input type="number" id="seed" min="0" max="2147483647" value="42" />
+                  <label class="seed-lock"><input type="checkbox" id="keep-seed" /> Keep this seed for repeatable batches</label>
+                  <div class="label-line advanced-range-label"><label class="field-label" for="temperature">Creativity</label><output id="temperature-value" for="temperature">0.85</output></div><input type="range" id="temperature" min="0.35" max="1.5" step="0.05" value="0.85" />
+                  <div class="two-columns"><label><span class="field-label">Top-k</span><input type="number" id="top-k" min="0" max="200" value="20" /></label><label><span class="field-label">Top-p</span><input type="number" id="top-p" min="0.1" max="1" step="0.05" value="0.95" /></label></div>
+                  <label class="advanced-backend"><span class="field-label">Compute device</span><select id="backend"><option value="auto">Automatic · prefer WebGPU</option><option value="webgpu">WebGPU only</option><option value="wasm">CPU · WebAssembly</option></select></label>
+                  <p class="field-description">Same seed + same settings helps reproduce a melody. Results can differ between devices. Repetition controls stay enabled.</p>
+                </div></details>
+              </fieldset>
+              <button class="generate-button" id="generate-button" type="submit"><span class="generate-icon" aria-hidden="true">✳</span><span id="generate-label">Make some music</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+              <button class="cancel-button" id="cancel-button" type="button" hidden>Stop generation</button>
+              <p class="model-footnote" id="model-footnote">~8 MB melody model + browser runtime on first use.<br />Generated here. Your music stays on your device.</p>
+              <div class="generation-status" id="generation-status" role="status" aria-live="polite" hidden><div class="status-top"><span id="generation-message">Preparing your studio…</span><span id="generation-percent"></span></div><div class="progress-track"><div id="generation-bar"></div></div></div>
+            </form>
+          </section>
+
+          <section class="listening-room" aria-labelledby="listening-heading">
+            <div class="room-heading"><div class="panel-heading"><span class="step-number">02</span><h2 id="listening-heading">Find your favorite.</h2></div><span id="library-count" class="library-count">THE LISTENING ROOM</span></div>
+            <div class="error-message" id="error-message" role="alert" hidden><span id="error-text"></span><button type="button" id="dismiss-error" aria-label="Dismiss error">×</button></div>
+            <article class="player-card" id="player-card" aria-label="Melody player">
+              <div class="player-heading"><div><p class="player-eyebrow" id="player-eyebrow"><span class="live-dot"></span> A LITTLE SOMETHING TO START</p><h3 id="now-playing-title">Hello, daydream.</h3><p class="now-playing-meta" id="now-playing-meta">Studio demo · 108 BPM · C major</p></div><div class="record-badge" aria-hidden="true"><span>♫</span></div></div>
+              <div class="piano-roll" id="piano-roll" aria-label="Note timeline"><div class="roll-staff" aria-hidden="true"></div><div class="roll-notes" id="roll-notes" aria-hidden="true"></div><div class="playhead" id="playhead" aria-hidden="true"></div><div class="roll-label" aria-hidden="true">YOUR MELODY, IN MOTION</div></div>
+              <div class="transport"><div class="transport-buttons"><button class="transport-skip" id="previous-song" type="button" aria-label="Previous melody" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 4v12M15 4l-8 6 8 6z"/></svg></button><button class="play-button" id="play-button" type="button" aria-label="Play melody"><svg id="play-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 11 7-11 7z"/></svg></button><button class="transport-skip" id="next-song" type="button" aria-label="Next melody" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M14 4v12M5 4l8 6-8 6z"/></svg></button></div><div class="playback-time"><span id="elapsed-time">0:00</span><span class="time-divider">/</span><span id="duration-time">0:00</span></div><div class="volume-control"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 8h3l4-4v12l-4-4H3zM13 7c2 2 2 4 0 6m3-9c4 4 4 8 0 12"/></svg><input type="range" id="volume" min="0" max="1" step="0.05" value="0.65" aria-label="Playback volume" /></div></div>
+              <div class="player-bottom"><label class="sound-select-label"><span aria-hidden="true">⌁</span><select id="waveform" aria-label="Instrument waveform"><option value="triangle">Soft synth</option><option value="sine">Pure tone</option><option value="square">8-bit pulse</option></select></label><div class="download-actions" aria-label="Download melody"><span>TAKE IT WITH YOU</span><button type="button" data-download="txt" title="Download RTTTL text">TXT <span aria-hidden="true">↓</span></button><button type="button" data-download="wav" title="Download WAV audio">WAV <span aria-hidden="true">↓</span></button><button type="button" data-download="mp3" title="Download MP3 audio">MP3 <span aria-hidden="true">↓</span></button></div></div>
+              <p class="export-status" id="export-status" role="status" hidden></p>
+            </article>
+
+            <div class="library" id="library"><div class="library-empty" id="library-empty"><div class="empty-note" aria-hidden="true">♪</div><div><h3>Good things come in little melodies.</h3><p>Pick a mood, make a batch, and meet your next earworm.<br />The demo above is ready to play while you explore.</p></div><span class="empty-arrow" aria-hidden="true">↖</span></div><ol class="song-list" id="song-list" aria-label="Your melodies"></ol></div>
+
+            <details class="import-panel"><summary><span><span aria-hidden="true">＋</span> Have an RTTTL tune already?</span><span class="import-summary-hint">Bring it to the studio ↗</span></summary><div class="import-body"><label class="field-label" for="rtttl-input">Paste your RTTTL</label><textarea id="rtttl-input" rows="3" spellcheck="false" placeholder="MyTune:d=8,o=5,b=120:c,e,g,4c6"></textarea><div class="import-actions"><label class="file-button" for="rtttl-file">Import .txt / .rtttl<input type="file" id="rtttl-file" accept=".txt,.rtttl,text/plain" /></label><button type="button" class="small-primary" id="load-rtttl">Load into player <span aria-hidden="true">↗</span></button></div><p class="field-description">One tune at a time. Your file stays in this browser.</p></div></details>
+            <div class="studio-note"><span aria-hidden="true">✳</span><p><strong>Small format. Endless possibilities.</strong> RTTTL is a wonderfully tiny way to write a melody. These guides shape the notes and rhythm; choose a synth sound to give them a different feel.</p></div>
+          </section>
+        </div>
+        <section class="how-it-works" aria-label="How the studio works"><div><span>01 / COMPOSE</span><h3>Your browser is the studio.</h3><p>The melody model runs here with WebGPU, with a CPU fallback when needed. No sign-in, no generation server.</p></div><div><span>02 / MAKE IT YOURS</span><h3>A little direction goes a long way.</h3><p>Try a new tempo, a minor key, a brighter sound. Melody guides are handcrafted hints, ready for your experiment.</p></div><div><span>03 / KEEP IT</span><h3>Made to leave your pocket.</h3><p>Save the tiny RTTTL text or take the sound with you as WAV or MP3. Start something, share something, have fun.</p></div></section>
+      </main>
+      <footer class="site-footer"><span class="footer-brand">Pocket Composer <span aria-hidden="true">♫</span></span><p>Powered by <a href="https://huggingface.co/charlie88agent/rtttl-generative-transformer" target="_blank" rel="noopener noreferrer">RTTTL Generative Transformer</a>.<br />Player adapted from <a href="https://github.com/adamonsoon/rtttl-play" target="_blank" rel="noopener noreferrer">adamonsoon/rtttl-play</a> · <a href="./vendor/NOTICE.txt" target="_blank" rel="noopener noreferrer">licenses &amp; credits</a>.</p><span class="footer-signoff">A little less silence.<br /><em>A little more music.</em></span></footer>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

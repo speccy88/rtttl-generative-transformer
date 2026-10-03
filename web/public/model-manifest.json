@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "modelUrl": "https://huggingface.co/charlie88agent/rtttl-generative-transformer/resolve/6b703647b135f1e857bf6e77b1d751cd3c137b23/browser/model.onnx",
+  "tokenizerUrl": "https://huggingface.co/charlie88agent/rtttl-generative-transformer/resolve/6b703647b135f1e857bf6e77b1d751cd3c137b23/browser/tokenizer.json",
+  "modelBytes": 8784194,
+  "modelSha256": "2903d830ed8226466fa54e1520c74a162f1745bf92b3e70c29a85e6beb79f6ba",
+  "tokenizerSha256": "0d294b28e14689544db7ab74f690e432f5dd02bb7dbcfc620b0f5937fe31252b",
+  "contextLength": 256,
+  "vocabSize": 940,
+  "runtimeBaseUrl": "runtime/ort/",
+  "inputName": "input_ids",
+  "outputName": "logits",
+  "sourceWeightsSha256": "80ca4903e453d84ced365107869b696722afc614b8a4b157023db01f451eb667"
+}

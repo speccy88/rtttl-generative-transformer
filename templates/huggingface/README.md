@@ -32,6 +32,21 @@ license. No title-model weights are bundled here.
 Full training, baselines, data preparation, evaluation, and release builder:
 [GitHub source at this release's commit](https://github.com/speccy88/rtttl-generative-transformer/tree/{{SOURCE_COMMIT}}).
 
+## Try it in your browser
+
+**[Open Pocket Composer](https://speccy88.github.io/rtttl-generative-transformer/)** —
+generate melodies locally with WebGPU, or WebAssembly on the CPU when needed.
+Choose a guide, tempo, key and length, listen with the piano-roll player, and
+export RTTTL text, WAV or MP3. No installation or account is required.
+Optional Qwen-generated titles are off by default and require a separate
+approximately 800 MB download; model inference stays on the visitor's device.
+
+The browser uses a pinned 8.8 MB ONNX export of the same melody weights, plus
+the browser runtime. Browser assets and export parity evidence live in
+[`browser/`](browser/); the safetensors and Python interface remain available.
+See [web app source and documentation](https://github.com/speccy88/rtttl-generative-transformer/tree/main/web)
+for the player attribution, runtime versions and build instructions.
+
 ## Download and run
 
 Download this repository into a local directory, then create a Python environment:

@@ -1,0 +1,58 @@
+[
+  {
+    "package": "@huggingface/transformers",
+    "version": "4.3.0",
+    "license": "Apache-2.0",
+    "source": "installed npm package LICENSE",
+    "file": "Transformers-js-LICENSE.txt",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  {
+    "package": "@huggingface/jinja",
+    "version": "0.5.10",
+    "license": "MIT",
+    "source": "installed npm package LICENSE",
+    "file": "Hugging-Face-Jinja-LICENSE.txt",
+    "sha256": "d6e7b19451c1b3d1d66353bb4b1274138953b3bfd9ae60c56e77b1f548796982"
+  },
+  {
+    "package": "@huggingface/tokenizers",
+    "version": "0.2.0",
+    "license": "Apache-2.0",
+    "source": "installed npm package LICENSE",
+    "file": "Hugging-Face-Tokenizers-LICENSE.txt",
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  },
+  {
+    "package": "onnxruntime-web",
+    "version": "1.30.0",
+    "license": "MIT plus upstream third-party notices",
+    "revision": "f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7",
+    "source": "https://github.com/microsoft/onnxruntime/blob/f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7/ThirdPartyNotices.txt",
+    "file": "ONNX-Runtime-1.30.0-ThirdPartyNotices.txt",
+    "sha256": "143764b952fdb1a7c69ce653bfba74a7744d6a8a573bfb73e235fba356c83de3"
+  },
+  {
+    "package": "onnxruntime-web",
+    "version": "1.31.0-dev.20260914-8d85527a0",
+    "license": "MIT plus upstream third-party notices",
+    "revision": "8d85527a010e294a26b274749f74294b2a32cec5",
+    "source": "https://github.com/microsoft/onnxruntime/blob/8d85527a010e294a26b274749f74294b2a32cec5/ThirdPartyNotices.txt",
+    "file": "ONNX-Runtime-1.31-dev-ThirdPartyNotices.txt",
+    "sha256": "143764b952fdb1a7c69ce653bfba74a7744d6a8a573bfb73e235fba356c83de3"
+  },
+  {
+    "package": "onnxruntime-web",
+    "version": "1.30.0 and 1.31.0-dev.20260914-8d85527a0",
+    "license": "MIT",
+    "source": "LICENSE identical at both verified upstream revisions",
+    "file": "ONNX-Runtime-LICENSE.txt",
+    "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c"
+  },
+  {
+    "package": "ONNX Runtime JavaScript dependencies",
+    "source": "locked installed npm license files plus guid-typescript package ISC declaration",
+    "file": "ONNX-JavaScript-ThirdPartyNotices.txt",
+    "sha256": "c21b5f36b22670b5ef5deb9377a6c0daedcd9492be92a0878357bc86f073a163"
+  }
+]

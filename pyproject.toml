@@ -11,6 +11,7 @@ requires-python = ">=3.10,<3.14"
 [project.optional-dependencies]
 naming = ["transformers==4.57.6", "safetensors>=0.4.3,<1"]
 release = ["safetensors==0.8.0"]
+browser-export = ["safetensors==0.8.0", "onnx==1.18.0", "onnxruntime==1.22.1"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

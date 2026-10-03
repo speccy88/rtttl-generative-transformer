@@ -32,3 +32,10 @@ runpod_evidence/
 *.zip
 *.log
 PACKAGE_MANIFEST.json
+# Browser application build/dependency artifacts
+web/node_modules/
+web/dist/
+web/public/runtime/
+web/test-results/
+web/playwright-report/
+*.onnx

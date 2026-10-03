@@ -1,0 +1,4 @@
+# Preserve these upstream license files byte-for-byte, including CRLF/spaces.
+web/public/fonts/DM-Sans-OFL.txt -text -whitespace
+web/public/fonts/Instrument-Serif-OFL.txt -text -whitespace
+web/public/vendor/lamejs-LICENSE.txt -text -whitespace

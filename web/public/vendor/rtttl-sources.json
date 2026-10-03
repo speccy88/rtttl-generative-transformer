@@ -1,0 +1,28 @@
+[
+  {
+    "repository": "https://github.com/adamonsoon/rtttl-play",
+    "revision": "3611762347eb62eadeecbe2b55838f436a9c834a",
+    "file": "rtttl-play-original.js.txt",
+    "upstream_path": "src/index.js",
+    "license": "MIT (declared in upstream package.json)",
+    "author": "Adam Rahwane",
+    "sha256": "1ecf4b44bf6ff0ea09598094c14bb818c0633b484cab1dc8ca4ed8659923c352"
+  },
+  {
+    "repository": "https://github.com/adamonsoon/rtttl-parse",
+    "revision": "4159483e64cf22dec6f11df03187183618e5219d",
+    "file": "rtttl-parse-original.js.txt",
+    "upstream_path": "src/index.js",
+    "license": "MIT (declared in upstream package.json)",
+    "author": "Adam Rahwane",
+    "sha256": "65110a4d2f1739d8251e80c7d38cd5453c67c9274d80db47121c205ec1322ce9"
+  },
+  {
+    "repository": "https://github.com/shijinyu/lamejs",
+    "revision": "1fb0ef5fa177413107e2e107d054a9b994e3f79c",
+    "package": "@breezystack/lamejs@1.2.7",
+    "file": "lamejs-1.2.7-source.tar.gz",
+    "license": "LGPL-3.0",
+    "sha256": "af8f08f0ff9a13777f2ffff737b48e40019b53a4b21db270dd62e829574e2b83"
+  }
+]

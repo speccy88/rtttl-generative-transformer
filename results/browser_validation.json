@@ -1,0 +1,138 @@
+{
+  "date": "2026-10-03",
+  "scope": "Local production-build and module verification on Apple M2; individual smoke cases, not a cross-browser compatibility or musical-quality benchmark.",
+  "melody_model": {
+    "version": 1,
+    "modelUrl": "https://huggingface.co/charlie88agent/rtttl-generative-transformer/resolve/6b703647b135f1e857bf6e77b1d751cd3c137b23/browser/model.onnx",
+    "tokenizerUrl": "https://huggingface.co/charlie88agent/rtttl-generative-transformer/resolve/6b703647b135f1e857bf6e77b1d751cd3c137b23/browser/tokenizer.json",
+    "modelBytes": 8784194,
+    "modelSha256": "2903d830ed8226466fa54e1520c74a162f1745bf92b3e70c29a85e6beb79f6ba",
+    "tokenizerSha256": "0d294b28e14689544db7ab74f690e432f5dd02bb7dbcfc620b0f5937fe31252b",
+    "contextLength": 256,
+    "vocabSize": 940,
+    "runtimeBaseUrl": "runtime/ort/",
+    "inputName": "input_ids",
+    "outputName": "logits",
+    "sourceWeightsSha256": "80ca4903e453d84ced365107869b696722afc614b8a4b157023db01f451eb667"
+  },
+  "export_parity": {
+    "status": "PASS",
+    "weights_sha256": "80ca4903e453d84ced365107869b696722afc614b8a4b157023db01f451eb667",
+    "onnx_sha256": "2903d830ed8226466fa54e1520c74a162f1745bf92b3e70c29a85e6beb79f6ba",
+    "onnx_bytes": 8784194,
+    "opset": 17,
+    "input": "input_ids int64 [1, sequence]",
+    "output": "logits float32 [1, 940]",
+    "torch_version": "2.6.0",
+    "onnxruntime_version": "1.22.1",
+    "checks": [
+      {
+        "sequence_length": 1,
+        "max_absolute_error": 9.775161743164062e-06,
+        "top_token_equal": true
+      },
+      {
+        "sequence_length": 2,
+        "max_absolute_error": 5.9604644775390625e-06,
+        "top_token_equal": true
+      },
+      {
+        "sequence_length": 17,
+        "max_absolute_error": 5.990266799926758e-06,
+        "top_token_equal": true
+      },
+      {
+        "sequence_length": 97,
+        "max_absolute_error": 4.291534423828125e-06,
+        "top_token_equal": true
+      },
+      {
+        "sequence_length": 256,
+        "max_absolute_error": 5.0067901611328125e-06,
+        "top_token_equal": true
+      }
+    ],
+    "scope": "Local CPU export parity; browser WebGPU is validated separately."
+  },
+  "checks": {
+    "python_tests": {
+      "passed": 341
+    },
+    "javascript_unit_tests": {
+      "passed": 24
+    },
+    "production_ui_tests": {
+      "passed": 6,
+      "optional_real_gpu_test_passed_separately": 1
+    },
+    "actual_melody_webgpu": {
+      "passed": true,
+      "device": "Apple Metal 3 hardware adapter",
+      "software_adapter": false
+    },
+    "browser_webgpu_parity": {
+      "passed": true,
+      "fixture_tokens": 17,
+      "output_logits": 940,
+      "max_absolute_error": 3.337860107421875e-06,
+      "top_10_token_ids_match": true
+    },
+    "explicit_cpu_and_auto_fallback": {
+      "passed": true,
+      "gpu_adapter_available": false
+    },
+    "cancellation": {
+      "during_manifest_fetch": true,
+      "during_model_fetch": true,
+      "during_melody_inference": true
+    },
+    "audio": {
+      "wav_and_mp3_decoded_in_browser": true,
+      "waveforms": [
+        "sine",
+        "triangle",
+        "square"
+      ],
+      "rtttl_txt_download_matches_score": true,
+      "play_stop_and_note_progress": true
+    },
+    "layout": {
+      "horizontal_overflow": false,
+      "widths_tested": [
+        320,
+        390,
+        640,
+        768,
+        1440
+      ]
+    },
+    "naming": {
+      "model": "onnx-community/Qwen2.5-0.5B-Instruct",
+      "revision": "cc5cc01a65cc3ff17bdb73a7de33d879f62599b0",
+      "dtype": "q4",
+      "approx_download_mb": 800,
+      "default": "off",
+      "requests_before_generation": 0,
+      "full_production_flow": {
+        "webgpu": {
+          "passed": true,
+          "named_songs": 1,
+          "browser_errors": []
+        },
+        "wasm": {
+          "passed": true,
+          "named_songs": 1,
+          "browser_errors": []
+        }
+      },
+      "musical_bytes_unchanged_by_naming": true
+    }
+  },
+  "limitations": [
+    "Title quality is subjective; invalid titles retain the existing name.",
+    "Profiles are sampling guides, not learned genre conditioning.",
+    "CPU rendering and some runtime shape operators accompany GPU model inference.",
+    "Browser caches and GPU availability vary by device."
+  ],
+  "local_evidence_directory": "evidence/web_pages_v1/"
+}
