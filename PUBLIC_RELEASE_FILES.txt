@@ -2,6 +2,7 @@
 .gitattributes
 .github/workflows/pages.yml
 .gitignore
+AGENTS.md
 LICENSE_NOTICE.md
 PUBLIC_RELEASE_FILES.txt
 README.md
@@ -20,6 +21,7 @@ docs/DATA_AND_RIGHTS.md
 docs/MODEL.md
 docs/REFERENCES.md
 docs/RESULTS.md
+docs/RTTTL_STUDIO.md
 docs/TRAINING.md
 evaluate.py
 generate.py
@@ -36,6 +38,9 @@ results/naming_validation.json
 results/publication_validation.json
 results/release_validation.json
 results/repetition_comparison_mps.json
+results/studio_browser_transcription_native.json
+results/studio_continuation_native.json
+results/studio_edits_native.json
 results/training_metrics.csv
 results/variety_validation.json
 scripts/build_hf_release.py
@@ -90,6 +95,7 @@ tests/test_local_llm.py
 tests/test_mixed_generation.py
 tests/test_models.py
 tests/test_naming.py
+tests/test_public_release.py
 tests/test_rtttl.py
 tests/test_song_description.py
 tests/test_tokenizer.py
@@ -108,6 +114,10 @@ web/public/fonts/instrument-serif-italic-latin.woff2
 web/public/fonts/instrument-serif-latin.woff2
 web/public/fonts/sources.json
 web/public/model-manifest.json
+web/public/transcription/APACHE-2.0.txt
+web/public/transcription/NOTICE.md
+web/public/transcription/SPOTIFY-NOTICE.txt
+web/public/transcription/basic-pitch.onnx
 web/public/vendor/GPL-3.0.txt
 web/public/vendor/Hugging-Face-Jinja-LICENSE.txt
 web/public/vendor/Hugging-Face-Tokenizers-LICENSE.txt
@@ -125,6 +135,10 @@ web/public/vendor/rtttl-play-original.js.txt
 web/public/vendor/rtttl-sources.json
 web/public/vendor/runtime-license-sources.json
 web/scripts/copy-runtime.mjs
+web/scripts/verify-browser-transcription.mjs
+web/scripts/verify-continuation.mjs
+web/src/audio-transcriber.js
+web/src/audio-transcriber.test.js
 web/src/audio.js
 web/src/audio.test.js
 web/src/browser-policy.js
@@ -139,13 +153,20 @@ web/src/rtttl.js
 web/src/sampler.js
 web/src/sampler.test.js
 web/src/styles.css
+web/src/studio-score.js
+web/src/studio-score.test.js
 web/src/title-utils.js
 web/src/title-utils.test.js
 web/src/title-worker.js
 web/src/titles.js
+web/src/transcription-core.js
+web/src/transcription-core.test.js
+web/src/transcription-worker.js
+web/tests/browser-inference.spec.js
 web/tests/cache.spec.js
 web/tests/mobile-titles.spec.js
 web/tests/model-reuse.spec.js
 web/tests/portable-model-cache.spec.js
 web/tests/studio.spec.js
+web/tests/unified-studio.spec.js
 web/vite.config.js

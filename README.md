@@ -2,7 +2,7 @@
 
 A small, real **decoder-only Transformer trained from random weights** to generate monophonic melodies in Ring Tone Text Transfer Language (RTTTL). Includes GRU and interpolated n-gram baselines, an audited parser, family-aware dataset splits, reproducible training, similarity checks, and WAV rendering. Melody generation uses no pretrained model or remote generation API. An optional, separate local language model can name completed melodies.
 
-**[Open Pocket Composer →](https://speccy88.github.io/rtttl-generative-transformer/)**
+**[Open RTTTL Studio →](https://speccy88.github.io/rtttl-generative-transformer/)**
 Make melodies directly in your browser with WebGPU or a local CPU fallback.
 Choose a melody guide, tempo, key and length; listen with the animated piano
 roll; and download RTTTL text, WAV or MP3. Optional automatic titles use a
@@ -10,9 +10,22 @@ separate local model (about 140 MB), downloaded only after you enable naming.
 No installation, account or inference server is needed. See the
 [web app documentation](web/README.md) for development and deployment.
 
+The same GitHub Pages studio also converts audio to RTTTL in the browser, with
+waveform excerpt selection, melody candidates and interactive note selection.
+Create variations or repair suggestions for a selected phrase, compare versions,
+and continue a melody. No local Python server is involved. The
+[`mp3_to_rtttl`](https://github.com/speccy88/mp3_to_rtttl) project supplies the
+reference decoding ideas while remaining an independent desktop/CLI tool. See
+[the Studio specification](docs/RTTTL_STUDIO.md).
+
 ## Public release scope
 
 This repository contains **source code, tests, configurations, English documentation, and aggregate experiment results**. It does not include the original music collection, processed records, trained checkpoints, or generated melodies/audio: the supplied corpus has no established redistribution license. Bring a corpus you are entitled to use, or run the synthetic demonstration below. Exact reproduction of the reported music experiment requires the original, non-public inputs and checkpoints.
+
+The browser additionally distributes the small third-party Spotify Basic Pitch
+inference model under its upstream Apache-2.0 license, with a pinned hash and notices
+in `web/public/transcription/`. This exception does not redistribute the private
+RTTTL training corpus or this project's trained checkpoint in Git.
 
 See [data and rights](docs/DATA_AND_RIGHTS.md) and [license notice](LICENSE_NOTICE.md). Public visibility is not a license grant.
 

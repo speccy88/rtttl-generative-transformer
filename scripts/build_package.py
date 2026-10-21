@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Build a public source-only ZIP from the checked-in release allowlist."""
+"""Build a public source ZIP from the checked-in release allowlist.
+
+The reviewed browser assets include one explicitly licensed Basic Pitch model.
+Other local model weights, recordings, generated music and caches stay excluded.
+"""
 import argparse
 import hashlib
 import json

@@ -39,3 +39,4 @@ web/public/runtime/
 web/test-results/
 web/playwright-report/
 *.onnx
+!web/public/transcription/basic-pitch.onnx

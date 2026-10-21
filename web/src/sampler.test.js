@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PROFILES, PROFILE_NAMES, applyGuidance, createRng, normalizeTonic, planBatch } from './profiles.js';
-import { DEFAULT_OPTIONS, EventTokenizer, GenerationCancelled, generateSong, neuralContext,
-  repetitionFilter, sampleToken, toRtttl, validateOptions } from './sampler.js';
+import { DEFAULT_OPTIONS, EDIT_LIMITS, EventTokenizer, GenerationCancelled, generateSong, neuralContext,
+  repetitionFilter, sampleToken, toRtttl, validateOptions, validatePromptSong } from './sampler.js';
+import { parseRtttl } from './rtttl.js';
 
 const tokenizer = new EventTokenizer();
 const token = text => tokenizer.tokenToId.get(text);
@@ -171,4 +172,343 @@ test('local random streams reproduce without affecting each other', () => {
   Array.from({ length: 40 }, other);
   assert.deepEqual(Array.from({ length: 20 }, two), a);
   assert.ok(a.every(value => value >= 0 && value < 1));
+});
+
+test('continuation tokenization preserves source notes, rests, dots and tempo without EOS', () => {
+  const source = parseRtttl('Source:d=8,o=5,b=137:c#,p.,4f#,2a6.');
+  const original = structuredClone(source);
+  const encoded = tokenizer.encodePrefix(source);
+  assert.deepEqual(encoded, [1, token('<BPM_137>'), pitch(73), duration,
+    tokenizer.restId, token('<DUR_8_dot>'), pitch(78), token('<DUR_4_plain>'), pitch(93), token('<DUR_2_dot>')]);
+  assert.notEqual(encoded.at(-1), tokenizer.eosId);
+  assert.deepEqual(source, original);
+  const decoded = tokenizer.decode([...encoded, tokenizer.eosId]);
+  assert.deepEqual(decoded.events, source.events.map(({ pitch, duration, dotted }) => ({ pitch, duration, dotted })));
+});
+
+test('continuation overrides new-song tempo controls and does not mutate the supplied options', () => {
+  const promptSong = parseRtttl('Source:d=8,o=5,b=113:c,d,e');
+  const supplied = { promptSong, numSongs: 3, bpm: 172, bpmRange: [90, 100], minEvents: 2, maxEvents: 8 };
+  const before = structuredClone(supplied);
+  const validated = validateOptions(supplied);
+  assert.deepEqual(supplied, before);
+  assert.notEqual(validated.options.promptSong, promptSong);
+  assert.notEqual(validated.options.promptSong.events, promptSong.events);
+  assert.equal(validated.options.minEvents, 2);
+  assert.equal(validated.options.maxEvents, 8);
+  assert.equal(validated.options.bpm, 113);
+  assert.equal(validated.options.bpmRange, null);
+  assert.ok(validated.plan.every(row => row.bpm === 113 && row.tempoSource === 'prompt' && row.continuation));
+});
+
+test('actual source token prefix reaches inference and only model-predicted events are appended', async () => {
+  const promptSong = parseRtttl('Input:d=8,o=5,b=137:c#,p.,4f#,2a6.');
+  const original = structuredClone(promptSong);
+  const config = options({ promptSong, minEvents: 2, maxEvents: 2, topK: 1, profile: 'cinematic' });
+  const contexts = [], progress = [];
+  const result = await generateSong({ tokenizer, options: config,
+    settings: { ...planBatch({ numSongs: 1, profile: 'cinematic' })[0], bpm: 60 }, seed: 17,
+    onProgress: event => progress.push(event), infer: async context => {
+      contexts.push([...context]);
+      const scores = flat(); scores[pitch(95)] = 20; scores[token('<DUR_16_dot>')] = 20; return scores;
+    },
+  });
+  assert.deepEqual(contexts[0], tokenizer.encodePrefix(promptSong));
+  assert.equal(contexts.length, 4); // Two genuine pitch decisions and two duration decisions.
+  assert.equal(result.bpm, 137);
+  assert.equal(result.events.length, promptSong.events.length + 2);
+  assert.deepEqual(result.events.slice(0, 4), promptSong.events.map(({ pitch, duration, dotted }) => ({ pitch, duration, dotted })));
+  assert.deepEqual(result.events.slice(4), Array.from({ length: 2 }, () => ({ pitch: 95, duration: 16, dotted: true })));
+  assert.deepEqual(promptSong, original);
+  assert.equal(result.continuation, true);
+  assert.equal(result.prefixEventCount, 4);
+  assert.equal(result.generatedEventCount, 2);
+  assert.equal(result.settings.tempoSource, 'prompt');
+  assert.equal(result.forcedEos, true);
+  assert.deepEqual(progress.map(row => row.eventCount), [0, 1, 1, 2]);
+  assert.ok(progress.every(row => row.maxEvents === 2 && row.prefixEventCount === 4));
+  assert.deepEqual(parseRtttl(result.rtttl).events.slice(0, 4), promptSong.events);
+});
+
+test('continuation cannot immediately stop by emitting EOS or return only a copy', async () => {
+  const promptSong = parseRtttl('Input:d=8,o=5,b=120:c,d');
+  const config = options({ promptSong, minEvents: 3, maxEvents: 8, topK: 1, profile: 'none' });
+  let calls = 0;
+  const result = await generateSong({ tokenizer, options: config, settings: planBatch({ numSongs: 1, profile: 'none' })[0], seed: 1,
+    infer: async () => { calls++; const scores = flat(); scores[2] = 100; scores[pitch(67)] = 90; scores[duration] = 90; return scores; },
+  });
+  assert.equal(result.generatedEventCount, 3);
+  assert.equal(calls, 7); // Three complete notes, followed by the first legal EOS decision.
+  assert.equal(result.forcedEos, false);
+});
+
+test('long continuation prefixes are retained in output while model context slides at event boundaries', async () => {
+  const promptSong = { name: 'Long', bpm: 120,
+    events: Array.from({ length: 140 }, (_, index) => ({ pitch: 60 + index % 12, duration: 32, dotted: false })) };
+  const config = options({ promptSong, minEvents: 2, maxEvents: 2, profile: 'none' });
+  const contexts = [];
+  const result = await generateSong({ tokenizer, options: config, settings: planBatch({ numSongs: 1, profile: 'none' })[0], seed: 4,
+    contextLength: 16, infer: async context => { contexts.push([...context]); return flat(); },
+  });
+  assert.deepEqual(contexts[0], neuralContext(tokenizer.encodePrefix(promptSong), 16));
+  assert.ok(contexts.every(context => context.length <= 16 && context[0] === 1 && context[1] === token('<BPM_120>')));
+  for (const context of contexts) {
+    for (let i = 2; i < context.length; i++) {
+      assert.equal(i % 2 === 0 ? tokenizer.eventStartSet.has(context[i]) : tokenizer.durationById.has(context[i]), true);
+    }
+  }
+  assert.deepEqual(result.events.slice(0, 140), promptSong.events);
+  assert.equal(result.events.length, 142);
+  assert.equal(contexts.length, 4);
+});
+
+test('continuation repetition controls include source history but never rewrite it', async () => {
+  const promptSong = parseRtttl('Repeated:d=8,o=5,b=120:c,c,c,c');
+  const config = options({ promptSong, minEvents: 1, maxEvents: 1, topK: 1, profile: 'none', maxPitchRun: 4 });
+  const result = await generateSong({ tokenizer, options: config, settings: planBatch({ numSongs: 1, profile: 'none' })[0], seed: 3,
+    infer: async () => { const scores = flat(); scores[pitch(72)] = 100; scores[pitch(74)] = 90; scores[duration] = 80; return scores; },
+  });
+  assert.deepEqual(result.events.slice(0, 4).map(event => event.pitch), [72, 72, 72, 72]);
+  assert.equal(result.events[4].pitch, 74);
+  assert.equal(result.interventions.pitch_run_blocks, 1);
+});
+
+test('continuation remains deterministic for a seed and varies sampled additions for another seed', async () => {
+  const config = options({ promptSong: parseRtttl('Seed:d=8,o=5,b=120:c,e,g'), minEvents: 4, maxEvents: 4,
+    profile: 'none', topK: 0, topP: 1 });
+  const run = seed => generateSong({ tokenizer, options: config, settings: planBatch({ numSongs: 1, profile: 'none' })[0],
+    seed, infer: async () => flat() });
+  const first = await run(5), repeated = await run(5), changed = await run(6);
+  assert.deepEqual(repeated, first);
+  assert.notDeepEqual(changed.events.slice(3), first.events.slice(3));
+  assert.deepEqual(changed.events.slice(0, 3), first.events.slice(0, 3));
+});
+
+test('unsupported continuation input is rejected before inference, without coercion', async () => {
+  const base = { name: 'Source', bpm: 120, events: [{ pitch: 72, duration: 8, dotted: false }] };
+  const invalid = [false, {}, { ...base, events: [] }, { ...base, events: Array(2) },
+    { ...base, bpm: 0 }, { ...base, bpm: 120.5 },
+    ...[59, 108, 72.5, undefined, '72'].map(pitch => ({ ...base, events: [{ ...base.events[0], pitch }] })),
+    ...[64, 3, '8'].map(duration => ({ ...base, events: [{ ...base.events[0], duration }] })),
+    { ...base, events: [{ ...base.events[0], dotted: 0 }] },
+  ];
+  let calls = 0;
+  for (const promptSong of invalid) {
+    assert.throws(() => validateOptions({ promptSong }), JSON.stringify(promptSong));
+    await assert.rejects(generateSong({ tokenizer, options: { ...options(), promptSong }, settings: planBatch({ numSongs: 1 })[0],
+      seed: 1, infer: async () => { calls++; return flat(); } }));
+  }
+  await assert.rejects(generateSong({ tokenizer, options: { ...options(), minEvents: 0, promptSong: base },
+    settings: planBatch({ numSongs: 1 })[0], seed: 1, infer: async () => { calls++; return flat(); } }), /additional events/);
+  assert.equal(calls, 0);
+  assert.throws(() => validatePromptSong({ ...base, events: [{ ...base.events[0], duration: 64 }] }), /64th notes/);
+});
+
+test('continuation enforces combined event and playable duration budgets', async () => {
+  const short = { pitch: 72, duration: 32, dotted: false };
+  assert.throws(() => validateOptions({ promptSong: { bpm: 900, events: Array(2040).fill(short) }, minEvents: 1, maxEvents: 16 }), /2048/);
+  const almostFull = { name: 'Long', bpm: 120, events: [
+    ...Array.from({ length: 149 }, () => ({ pitch: 72, duration: 1, dotted: false })),
+    { pitch: 74, duration: 2, dotted: true }, { pitch: 76, duration: 8, dotted: true },
+  ] }; // 299.875 seconds: only two 32nd notes fit.
+  assert.throws(() => validateOptions({ promptSong: almostFull, minEvents: 3, maxEvents: 4 }), /not enough time/);
+  const config = options({ promptSong: almostFull, minEvents: 2, maxEvents: 6, profile: 'none', topK: 1 });
+  const result = await generateSong({ tokenizer, options: config, settings: planBatch({ numSongs: 1, profile: 'none' })[0], seed: 7,
+    infer: async () => { const scores = flat(); scores[pitch(79)] = 100; scores[token('<DUR_1_plain>')] = 100; return scores; },
+  });
+  assert.equal(result.generatedEventCount, 2);
+  assert.deepEqual(result.events.slice(-2).map(event => event.duration), [32, 32]);
+  assert.ok(parseRtttl(result.rtttl).durationSeconds <= 300);
+  assert.equal(result.forcedEos, true);
+});
+
+test('cancellation during continuation retains the caller source and stops inference', async () => {
+  const promptSong = parseRtttl('Cancel:d=8,o=5,b=120:c,p,d.');
+  const original = structuredClone(promptSong);
+  const config = options({ promptSong });
+  let cancelled = false, calls = 0;
+  await assert.rejects(generateSong({ tokenizer, options: config, settings: planBatch({ numSongs: 1 })[0], seed: 1,
+    infer: async () => { calls++; cancelled = true; return flat(); }, isCancelled: () => cancelled,
+  }), GenerationCancelled);
+  assert.equal(calls, 1);
+  assert.deepEqual(promptSong, original);
+});
+
+test('edit settings validate the complete selection before inference and ignore new-song length/tempo', async () => {
+  const promptSong = parseRtttl('Source:d=8,o=5,b=113:c,p,d,e,f,g,a,b,c6,d6,e6,f6,g6,a6,b6,c7,d7');
+  const base = { promptSong, editMode: 'variation', selection: { start: 0, end: 4 }, numSongs: 2 };
+  const before = structuredClone(base);
+  const valid = validateOptions({ ...base, minEvents: 0, maxEvents: 0, bpm: 0, bpmRange: [200, 100], editStrength: 'low' });
+  assert.deepEqual(base, before);
+  assert.equal(valid.options.editStrength, .25);
+  assert.equal(valid.options.bpm, 113);
+  assert.ok(valid.plan.every(settings => settings.editMode === 'variation' && !settings.continuation && settings.tempoSource === 'prompt'));
+  const invalid = [
+    { promptSong: null }, { editMode: 'bert' }, { selection: null }, { selection: [] },
+    ...[{ start: -1, end: 2 }, { start: 0, end: 0 }, { start: 2, end: 1 }, { start: 0, end: 18 },
+      { start: 0, end: 17 }, { start: .5, end: 2 }, { start: 1, end: 2 }, { start: 0, end: '3' }].map(selection => ({ selection })),
+    ...[0, -1, 1.01, NaN, true, '0.5', 'maximum'].map(editStrength => ({ editStrength })),
+    { numSongs: 5 }, { promptSong: parseRtttl('Unsupported:d=64,o=5,b=120:c,d') },
+  ];
+  let calls = 0;
+  for (const override of invalid) {
+    assert.throws(() => validateOptions({ ...base, ...override }), JSON.stringify(override));
+    await assert.rejects(generateSong({ tokenizer, options: { ...DEFAULT_OPTIONS, ...base, ...override }, settings: {}, seed: 2,
+      infer: async () => { calls++; return flat(); } }));
+  }
+  assert.equal(calls, 0);
+  assert.throws(() => validateOptions({ promptSong, selection: { start: 0, end: 1 } }), /require editMode/);
+});
+
+test('variation uses model logits from the preceding prefix and only changes the selected pitch', async () => {
+  const promptSong = parseRtttl('Source:d=8,o=5,b=137:c,p.,d,4e.,f,p,g');
+  const original = structuredClone(promptSong);
+  const { options: config, plan } = validateOptions({ promptSong, editMode: 'variation', selection: { start: 2, end: 3 },
+    editStrength: 'low', numSongs: 1, topK: 1, profile: 'none' });
+  const contexts = [];
+  const run = async preferred => generateSong({ tokenizer, options: config, settings: plan[0], seed: 3,
+    infer: async context => { contexts.push([...context]); const scores = flat(); scores[pitch(preferred)] = 20; return scores; },
+  });
+  const first = await run(76), other = await run(72);
+  assert.deepEqual(contexts, [tokenizer.encodePrefix(promptSong).slice(0, 6), tokenizer.encodePrefix(promptSong).slice(0, 6)]);
+  assert.equal(first.events[2].pitch, 76);
+  assert.equal(other.events[2].pitch, 72); // Model evidence, not a canned transpose.
+  for (let i = 0; i < promptSong.events.length; i++) {
+    const { pitch: sourcePitch, ...timing } = original.events[i];
+    const { pitch: nextPitch, ...nextTiming } = parseRtttl(first.rtttl).events[i];
+    assert.deepEqual(nextTiming, timing);
+    if (i !== 2) assert.equal(nextPitch, sourcePitch);
+  }
+  assert.equal(first.bpm, 137);
+  assert.equal(first.events.length, original.events.length);
+  assert.equal(first.changedEventCount, 1);
+  assert.equal(first.inferenceCalls, 1);
+  assert.equal(first.editMode, 'variation');
+  assert.equal(first.continuation, false);
+  assert.equal(first.generatedEventCount, 0);
+  assert.equal(first.repairMethod, null);
+  assert.deepEqual(promptSong, original);
+});
+
+test('strength bounds note changes and displacement without changing rests, rhythm or unselected notes', async () => {
+  const promptSong = parseRtttl('Source:d=8,o=5,b=120:c,d,e,p,f,g,a.,b,c6,d6,p,e6,f6,4g6,a6,b6');
+  const { options: config, plan } = validateOptions({ promptSong, editMode: 'variation', selection: { start: 2, end: 14 },
+    editStrength: .25, numSongs: 1, profile: 'cinematic', topK: 0, topP: 1 });
+  const run = seed => generateSong({ tokenizer, options: config, settings: plan[0], seed, infer: async () => flat() });
+  const first = await run(7), same = await run(7), different = await run(8);
+  assert.deepEqual(same, first);
+  assert.notDeepEqual(different.events, first.events);
+  assert.ok(first.changedEventCount >= 1 && first.changedEventCount <= 3);
+  assert.equal(first.maxChangedEvents, 3);
+  assert.equal(first.maxPitchDistance, 3);
+  for (let i = 0; i < promptSong.events.length; i++) {
+    const original = promptSong.events[i], modified = first.events[i];
+    assert.equal(modified.duration, original.duration);
+    assert.equal(modified.dotted, original.dotted);
+    if (i < 2 || i >= 14 || original.pitch === null) assert.equal(modified.pitch, original.pitch);
+    else assert.ok(Math.abs(modified.pitch - original.pitch) <= 3);
+  }
+});
+
+test('repair genuinely uses suffix likelihood to prefer a candidate that the prefix alone disfavors', async () => {
+  const promptSong = parseRtttl('Source:d=8,o=5,b=120:c,d,g');
+  const original = structuredClone(promptSong);
+  const { options: config, plan } = validateOptions({ promptSong, editMode: 'repair', selection: { start: 1, end: 2 },
+    editStrength: 'medium', numSongs: 1, profile: 'none', topK: 1 });
+  const contexts = [];
+  const result = await generateSong({ tokenizer, options: config, settings: plan[0], seed: 2,
+    infer: async context => {
+      contexts.push([...context]);
+      const scores = new Float32Array(940).fill(-20);
+      if (context.length % 2) scores[duration] = 20;
+      else if (context.length === 4) { scores[pitch(74)] = 10; scores[pitch(76)] = 9; }
+      else { scores[pitch(80)] = 20; scores[pitch(79)] = context[4] === pitch(76) ? 25 : -20; }
+      return scores;
+    },
+  });
+  assert.equal(result.events[1].pitch, 76);
+  assert.equal(result.events[2].pitch, 79);
+  assert.equal(result.changedEventCount, 1);
+  assert.equal(result.originalChosen, false);
+  assert.equal(result.repairMethod, 'forward-likelihood-reranking');
+  const scores = result.scoreDetails;
+  assert.equal(scores.suffixEventCount, 1);
+  assert.equal(scores.scoredTokenCount, 4);
+  assert.equal(scores.candidateCount, 2); // Duplicate proposals are evaluated once.
+  const baseline = scores.candidates.find(candidate => candidate.original);
+  const alternate = scores.candidates.find(candidate => !candidate.original);
+  assert.ok(baseline.spanLogLikelihood > alternate.spanLogLikelihood);
+  assert.ok(alternate.suffixLogLikelihood > baseline.suffixLogLikelihood);
+  assert.ok(scores.scoreDelta > 30);
+  assert.ok(contexts.some(context => context.length === 6 && context[4] === pitch(76)));
+  assert.deepEqual(promptSong, original);
+});
+
+test('repair includes the original baseline and retains it when alternatives tie or score worse', async () => {
+  const promptSong = parseRtttl('Source:d=8,o=5,b=120:c,d,p.,e,f');
+  const { options: config, plan } = validateOptions({ promptSong, editMode: 'repair', selection: { start: 1, end: 3 },
+    numSongs: 1, profile: 'none', topK: 1 });
+  for (const preferOriginal of [false, true]) {
+    const result = await generateSong({ tokenizer, options: config, settings: plan[0], seed: 9,
+      infer: async context => { const scores = flat(); if (preferOriginal && context.length === 4) scores[pitch(74)] = 10; return scores; },
+    });
+    assert.equal(result.originalChosen, true);
+    assert.equal(result.changedEventCount, 0);
+    assert.equal(result.scoreDetails.scoreDelta, 0);
+    assert.equal(result.scoreDetails.candidates[0].original, true);
+    assert.ok(result.scoreDetails.candidates.slice(1).every(candidate => candidate.changedEventCount > 0));
+    assert.deepEqual(result.events, promptSong.events.map(({ pitch, duration, dotted }) => ({ pitch, duration, dotted })));
+    if (!preferOriginal) assert.ok(Math.abs(result.scoreDetails.originalLogLikelihood + 8 * Math.log(940)) < 1e-9);
+  }
+});
+
+test('repair scoring caps the suffix and inference work, preserving event-aligned sliding context', async () => {
+  const promptSong = { name: 'Long', bpm: 180, events: Array.from({ length: 150 }, (_, index) => ({ pitch: 72 + index % 12, duration: 8, dotted: false })) };
+  const { options: config, plan } = validateOptions({ promptSong, editMode: 'repair', selection: { start: 128, end: 144 },
+    editStrength: 'high', numSongs: 1, profile: 'none', topK: 0, topP: 1 });
+  promptSong.events.push(...Array.from({ length: 10 }, () => ({ pitch: 72, duration: 8, dotted: false })));
+  config.promptSong = validatePromptSong(promptSong);
+  const contexts = [];
+  const result = await generateSong({ tokenizer, options: config, settings: plan[0], seed: 6, contextLength: 16,
+    infer: async context => { contexts.push([...context]); return flat(); },
+  });
+  assert.equal(result.scoreDetails.suffixEventCount, 8);
+  assert.equal(result.scoreDetails.scoredTokenCount, 48);
+  assert.ok(result.inferenceCalls <= EDIT_LIMITS.inferenceCalls);
+  assert.equal(contexts.length, result.inferenceCalls);
+  assert.ok(result.scoreDetails.candidateCount >= 2 && result.scoreDetails.candidateCount <= 5);
+  assert.deepEqual(contexts[0], neuralContext(tokenizer.encodePrefix(promptSong).slice(0, 258), 16));
+  assert.ok(contexts.every(context => context.length <= 16 && context[0] === 1 && context[1] === token('<BPM_180>')));
+  for (const context of contexts) for (let i = 2; i < context.length; i++) {
+    assert.equal(i % 2 === 0 ? tokenizer.eventStartSet.has(context[i]) : tokenizer.durationById.has(context[i]), true);
+  }
+});
+
+test('edits reject malformed model results and cancel during proposal or suffix scoring', async () => {
+  const promptSong = parseRtttl('Source:d=8,o=5,b=120:c,d,e,f');
+  const original = structuredClone(promptSong);
+  for (const editMode of ['variation', 'repair']) {
+    const { options: config, plan } = validateOptions({ promptSong, editMode, selection: { start: 1, end: 2 }, numSongs: 1, profile: 'none' });
+    let calls = 0, cancelled = false;
+    await assert.rejects(generateSong({ tokenizer, options: config, settings: plan[0], seed: 1, isCancelled: () => cancelled,
+      infer: async context => { calls++; if (editMode === 'variation' || context.length % 2) cancelled = true; return flat(); },
+    }), GenerationCancelled);
+    assert.equal(calls, editMode === 'variation' ? 1 : 2);
+    for (const output of [new Float32Array(4), new Float32Array(940).fill(Infinity)]) {
+      await assert.rejects(generateSong({ tokenizer, options: config, settings: plan[0], seed: 1, infer: async () => output }), /vocabulary|non-finite/);
+    }
+  }
+  assert.deepEqual(promptSong, original);
+});
+
+test('edit inference yields to cancellation even when each model promise resolves immediately', async () => {
+  const promptSong = { bpm: 120, events: Array.from({ length: 16 }, () => ({ pitch: 72, duration: 8, dotted: false })) };
+  const { options: config, plan } = validateOptions({ promptSong, editMode: 'variation', selection: { start: 0, end: 16 }, editStrength: 1, numSongs: 1 });
+  let cancelled = false, calls = 0;
+  const timer = setTimeout(() => { cancelled = true; }, 0);
+  try {
+    await assert.rejects(generateSong({ tokenizer, options: config, settings: plan[0], seed: 1, isCancelled: () => cancelled,
+      infer: async () => { calls++; return flat(); } }), GenerationCancelled);
+    assert.equal(calls, 4);
+  } finally { clearTimeout(timer); }
 });

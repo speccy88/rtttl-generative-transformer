@@ -61,11 +61,12 @@ normalProfileTest('optional real title model is reused after a page reload witho
     }).observe(document, { childList: true, subtree: true, characterData: true });
   });
   async function composeNamed() {
+    const previousCount = await page.locator('.song-row').count();
     await page.selectOption('#song-count', '1'); await page.selectOption('#length', '24');
     if (!(await page.locator('#name-songs').isChecked())) await page.locator('.naming-option').click();
     await page.getByRole('button', { name: 'Make some music' }).click();
     await expect(page.locator('#generation-message')).toContainText('1 melody, made on your device.', { timeout: 300000 });
-    await expect(page.locator('.song-row')).toHaveCount(1);
+    await expect(page.locator('.song-row')).toHaveCount(previousCount + 1);
     await expect(page.getByRole('alert')).not.toBeVisible();
     await expect(page.locator('#now-playing-title')).not.toHaveText('Melody 01');
   }

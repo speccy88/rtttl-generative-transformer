@@ -69,3 +69,10 @@ The upstream ONNX notices cover multiple build targets and are retained in full;
 ## Fonts
 
 Instrument Serif and DM Sans are locally served under their SIL Open Font Licenses. Their complete license texts and source metadata are distributed under `fonts/` as `Instrument-Serif-OFL.txt`, `DM-Sans-OFL.txt`, and `sources.json`.
+
+## Spotify Basic Pitch
+
+Browser audio transcription uses the Apache-2.0 Basic Pitch ONNX model distributed
+under [`public/transcription/`](public/transcription/). That directory contains the
+full upstream license, attribution, exact model hash and provenance. The worker
+runs inference on the visitor's device and makes no transcription API call.

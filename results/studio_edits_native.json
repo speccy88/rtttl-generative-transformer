@@ -1,0 +1,405 @@
+{
+  "status": "PASS",
+  "verification": "Real published ONNX weights, native ONNX Runtime CPU inference; no mocked logits.",
+  "scope": "Verifies checkpoint compatibility, genuine source conditioning, exact continuation prefixes, constrained selected-pitch variation, baseline-and-suffix repair scoring, unchanged rhythm/rests/unselected events, and seeded sampling on native CPU. Does not validate browser worker behavior, WebGPU, WASM, mobile devices, musical quality or audio transcription accuracy. Repair is autoregressive likelihood reranking, not trained masked infilling or acoustic correction.",
+  "modelSha256": "2903d830ed8226466fa54e1520c74a162f1745bf92b3e70c29a85e6beb79f6ba",
+  "vocabularySha256": "0d294b28e14689544db7ab74f690e432f5dd02bb7dbcfc620b0f5937fe31252b",
+  "modelUrl": "https://huggingface.co/charlie88agent/rtttl-generative-transformer/resolve/6b703647b135f1e857bf6e77b1d751cd3c137b23/browser/model.onnx",
+  "runtime": {
+    "common": "1.30.0",
+    "node": "1.30.0"
+  },
+  "executionProvider": "cpu",
+  "initializationMs": 78,
+  "sourceRtttl": "Input:d=8,o=5,b=120:c,c,g,g,a,a,4g,p",
+  "sameSeedIdentical": true,
+  "changedSeedDifferent": true,
+  "editSameSeedIdentical": true,
+  "outputPolicy": "Only output hashes and aggregate scores are retained; generated model melodies are excluded from the public evidence.",
+  "runs": [
+    {
+      "seed": 42,
+      "inferenceCalls": 16,
+      "elapsedMs": 36,
+      "firstContext": [
+        1,
+        98,
+        891,
+        934,
+        891,
+        934,
+        898,
+        934,
+        898,
+        934,
+        900,
+        934,
+        900,
+        934,
+        898,
+        932,
+        927,
+        934
+      ],
+      "logitRange": [
+        -15.83154010772705,
+        7.507160663604736
+      ],
+      "prefixEventCount": 8,
+      "generatedEventCount": 8,
+      "rtttlSha256": "9a97fc85e93c2af5e6fae6b023cb9faebfce07679d0e9e9c41bd55cbb4bccb55"
+    },
+    {
+      "seed": 42,
+      "inferenceCalls": 16,
+      "elapsedMs": 27,
+      "firstContext": [
+        1,
+        98,
+        891,
+        934,
+        891,
+        934,
+        898,
+        934,
+        898,
+        934,
+        900,
+        934,
+        900,
+        934,
+        898,
+        932,
+        927,
+        934
+      ],
+      "logitRange": [
+        -15.83154010772705,
+        7.507160663604736
+      ],
+      "prefixEventCount": 8,
+      "generatedEventCount": 8,
+      "rtttlSha256": "9a97fc85e93c2af5e6fae6b023cb9faebfce07679d0e9e9c41bd55cbb4bccb55"
+    },
+    {
+      "seed": 43,
+      "inferenceCalls": 16,
+      "elapsedMs": 25,
+      "firstContext": [
+        1,
+        98,
+        891,
+        934,
+        891,
+        934,
+        898,
+        934,
+        898,
+        934,
+        900,
+        934,
+        900,
+        934,
+        898,
+        932,
+        927,
+        934
+      ],
+      "logitRange": [
+        -15.83154010772705,
+        7.507160663604736
+      ],
+      "prefixEventCount": 8,
+      "generatedEventCount": 8,
+      "rtttlSha256": "b085a058bd331be59b8f8f1e064c202c250d5739d47c7958bcbb3a642507c604"
+    }
+  ],
+  "editRuns": [
+    {
+      "editMode": "variation",
+      "seed": 42,
+      "selection": {
+        "start": 2,
+        "end": 6
+      },
+      "editStrength": 0.5,
+      "inferenceCalls": 2,
+      "elapsedMs": 3,
+      "logitRange": [
+        -13.933947563171387,
+        7.748539447784424
+      ],
+      "firstContextMatchesSourcePrefix": true,
+      "unchangedOutsideSelection": true,
+      "timingAndRestsPreserved": true,
+      "changedEventCount": 2,
+      "originalChosen": false,
+      "repairMethod": null,
+      "scoreDetails": null,
+      "rtttlSha256": "7b62ba30f227954ffb45ef26b054921abfd8cc0ea1929adfaf6edce75abe947d"
+    },
+    {
+      "editMode": "variation",
+      "seed": 42,
+      "selection": {
+        "start": 2,
+        "end": 6
+      },
+      "editStrength": 0.5,
+      "inferenceCalls": 2,
+      "elapsedMs": 2,
+      "logitRange": [
+        -13.933947563171387,
+        7.748539447784424
+      ],
+      "firstContextMatchesSourcePrefix": true,
+      "unchangedOutsideSelection": true,
+      "timingAndRestsPreserved": true,
+      "changedEventCount": 2,
+      "originalChosen": false,
+      "repairMethod": null,
+      "scoreDetails": null,
+      "rtttlSha256": "7b62ba30f227954ffb45ef26b054921abfd8cc0ea1929adfaf6edce75abe947d"
+    },
+    {
+      "editMode": "variation",
+      "seed": 43,
+      "selection": {
+        "start": 2,
+        "end": 6
+      },
+      "editStrength": 0.5,
+      "inferenceCalls": 2,
+      "elapsedMs": 3,
+      "logitRange": [
+        -15.748330116271973,
+        7.888769149780273
+      ],
+      "firstContextMatchesSourcePrefix": true,
+      "unchangedOutsideSelection": true,
+      "timingAndRestsPreserved": true,
+      "changedEventCount": 2,
+      "originalChosen": false,
+      "repairMethod": null,
+      "scoreDetails": null,
+      "rtttlSha256": "4644b1024a27cc078b60085f14d6ca9804bde1021fac23521068dc730486bfa7"
+    },
+    {
+      "editMode": "repair",
+      "seed": 42,
+      "selection": {
+        "start": 2,
+        "end": 6
+      },
+      "editStrength": 0.5,
+      "inferenceCalls": 50,
+      "elapsedMs": 66,
+      "logitRange": [
+        -13.933947563171387,
+        7.748539447784424
+      ],
+      "firstContextMatchesSourcePrefix": true,
+      "unchangedOutsideSelection": true,
+      "timingAndRestsPreserved": true,
+      "changedEventCount": 2,
+      "originalChosen": false,
+      "repairMethod": "forward-likelihood-reranking",
+      "scoreDetails": {
+        "method": "forward-log-likelihood",
+        "scoreUnit": "natural-log",
+        "suffixEventCount": 2,
+        "scoredTokenCount": 12,
+        "sampledCandidateAttempts": 4,
+        "candidateCount": 5,
+        "originalLogLikelihood": -15.933236819386105,
+        "winningLogLikelihood": -14.860904143381507,
+        "scoreDelta": 1.0723326760045975,
+        "candidates": [
+          {
+            "candidateIndex": 0,
+            "original": true,
+            "changedEventCount": 0,
+            "spanLogLikelihood": -10.030347282779273,
+            "suffixLogLikelihood": -5.902889536606832,
+            "totalLogLikelihood": -15.933236819386105
+          },
+          {
+            "candidateIndex": 1,
+            "original": false,
+            "changedEventCount": 2,
+            "spanLogLikelihood": -9.995179778109287,
+            "suffixLogLikelihood": -6.172721816480685,
+            "totalLogLikelihood": -16.16790159458997
+          },
+          {
+            "candidateIndex": 2,
+            "original": false,
+            "changedEventCount": 2,
+            "spanLogLikelihood": -11.685958498980074,
+            "suffixLogLikelihood": -5.749703564743019,
+            "totalLogLikelihood": -17.435662063723093
+          },
+          {
+            "candidateIndex": 3,
+            "original": false,
+            "changedEventCount": 2,
+            "spanLogLikelihood": -8.684087019714488,
+            "suffixLogLikelihood": -6.176817123667019,
+            "totalLogLikelihood": -14.860904143381507
+          },
+          {
+            "candidateIndex": 4,
+            "original": false,
+            "changedEventCount": 2,
+            "spanLogLikelihood": -11.419505229588882,
+            "suffixLogLikelihood": -5.699834898122331,
+            "totalLogLikelihood": -17.11934012771121
+          }
+        ]
+      },
+      "rtttlSha256": "3ffec6bb7860fde6584d9ea105e20d1e4e3dfd68313c13b27570fed5b1458e7b"
+    },
+    {
+      "editMode": "repair",
+      "seed": 42,
+      "selection": {
+        "start": 2,
+        "end": 6
+      },
+      "editStrength": 0.5,
+      "inferenceCalls": 50,
+      "elapsedMs": 55,
+      "logitRange": [
+        -13.933947563171387,
+        7.748539447784424
+      ],
+      "firstContextMatchesSourcePrefix": true,
+      "unchangedOutsideSelection": true,
+      "timingAndRestsPreserved": true,
+      "changedEventCount": 2,
+      "originalChosen": false,
+      "repairMethod": "forward-likelihood-reranking",
+      "scoreDetails": {
+        "method": "forward-log-likelihood",
+        "scoreUnit": "natural-log",
+        "suffixEventCount": 2,
+        "scoredTokenCount": 12,
+        "sampledCandidateAttempts": 4,
+        "candidateCount": 5,
+        "originalLogLikelihood": -15.933236819386105,
+        "winningLogLikelihood": -14.860904143381507,
+        "scoreDelta": 1.0723326760045975,
+        "candidates": [
+          {
+            "candidateIndex": 0,
+            "original": true,
+            "changedEventCount": 0,
+            "spanLogLikelihood": -10.030347282779273,
+            "suffixLogLikelihood": -5.902889536606832,
+            "totalLogLikelihood": -15.933236819386105
+          },
+          {
+            "candidateIndex": 1,
+            "original": false,
+            "changedEventCount": 2,
+            "spanLogLikelihood": -9.995179778109287,
+            "suffixLogLikelihood": -6.172721816480685,
+            "totalLogLikelihood": -16.16790159458997
+          },
+          {
+            "candidateIndex": 2,
+            "original": false,
+            "changedEventCount": 2,
+            "spanLogLikelihood": -11.685958498980074,
+            "suffixLogLikelihood": -5.749703564743019,
+            "totalLogLikelihood": -17.435662063723093
+          },
+          {
+            "candidateIndex": 3,
+            "original": false,
+            "changedEventCount": 2,
+            "spanLogLikelihood": -8.684087019714488,
+            "suffixLogLikelihood": -6.176817123667019,
+            "totalLogLikelihood": -14.860904143381507
+          },
+          {
+            "candidateIndex": 4,
+            "original": false,
+            "changedEventCount": 2,
+            "spanLogLikelihood": -11.419505229588882,
+            "suffixLogLikelihood": -5.699834898122331,
+            "totalLogLikelihood": -17.11934012771121
+          }
+        ]
+      },
+      "rtttlSha256": "3ffec6bb7860fde6584d9ea105e20d1e4e3dfd68313c13b27570fed5b1458e7b"
+    },
+    {
+      "editMode": "repair",
+      "seed": 43,
+      "selection": {
+        "start": 2,
+        "end": 6
+      },
+      "editStrength": 0.5,
+      "inferenceCalls": 39,
+      "elapsedMs": 53,
+      "logitRange": [
+        -15.748330116271973,
+        7.888769149780273
+      ],
+      "firstContextMatchesSourcePrefix": true,
+      "unchangedOutsideSelection": true,
+      "timingAndRestsPreserved": true,
+      "changedEventCount": 2,
+      "originalChosen": false,
+      "repairMethod": "forward-likelihood-reranking",
+      "scoreDetails": {
+        "method": "forward-log-likelihood",
+        "scoreUnit": "natural-log",
+        "suffixEventCount": 2,
+        "scoredTokenCount": 12,
+        "sampledCandidateAttempts": 4,
+        "candidateCount": 4,
+        "originalLogLikelihood": -15.933236819386105,
+        "winningLogLikelihood": -12.622568332162647,
+        "scoreDelta": 3.3106684872234577,
+        "candidates": [
+          {
+            "candidateIndex": 0,
+            "original": true,
+            "changedEventCount": 0,
+            "spanLogLikelihood": -10.030347282779273,
+            "suffixLogLikelihood": -5.902889536606832,
+            "totalLogLikelihood": -15.933236819386105
+          },
+          {
+            "candidateIndex": 1,
+            "original": false,
+            "changedEventCount": 2,
+            "spanLogLikelihood": -6.6747663860168,
+            "suffixLogLikelihood": -5.947801946145847,
+            "totalLogLikelihood": -12.622568332162647
+          },
+          {
+            "candidateIndex": 2,
+            "original": false,
+            "changedEventCount": 2,
+            "spanLogLikelihood": -9.48860429030326,
+            "suffixLogLikelihood": -4.842370581728354,
+            "totalLogLikelihood": -14.330974872031614
+          },
+          {
+            "candidateIndex": 3,
+            "original": false,
+            "changedEventCount": 2,
+            "spanLogLikelihood": -12.317152658837875,
+            "suffixLogLikelihood": -6.216000920701488,
+            "totalLogLikelihood": -18.533153579539363
+          }
+        ]
+      },
+      "rtttlSha256": "4644b1024a27cc078b60085f14d6ca9804bde1021fac23521068dc730486bfa7"
+    }
+  ]
+}
