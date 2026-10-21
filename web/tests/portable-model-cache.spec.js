@@ -9,6 +9,7 @@ const modelRequest = url => /\/resolve\//.test(new URL(url).pathname);
 const runtimeRequest = url => /\/runtime\//.test(new URL(url).pathname);
 
 async function generateShortMelody(page) {
+  const previousCount = await page.locator('.song-row').count();
   await expect(page.locator('#name-songs')).not.toBeChecked();
   await page.locator('#song-count').selectOption('1');
   await page.locator('#length').selectOption('24');
@@ -19,7 +20,7 @@ async function generateShortMelody(page) {
   await page.getByRole('button', { name: 'Make some music' }).click();
   await expect(page.locator('#generation-message')).toContainText('1 melody, made on your device.', { timeout: 160000 });
   await expect(page.locator('#hardware-status')).toContainText('CPU');
-  await expect(page.locator('.song-row')).toHaveCount(1);
+  await expect(page.locator('.song-row')).toHaveCount(previousCount + 1);
   await expect(page.getByRole('alert')).not.toBeVisible();
   const result = await page.evaluate(() => window.__melodyWorkerEvents.findLast(event => event.type === 'done'));
   expect(result.backend).toBe('wasm');

@@ -212,12 +212,13 @@ async function installBatchWorkers(page) {
 }
 
 async function startNamedBatch(page, batchNumber = 1) {
+  const previousCount = await page.locator('.song-row').count();
   await page.locator('#song-count').selectOption('4');
   if (!(await page.locator('#name-songs').isChecked())) await page.locator('.naming-option').click();
   await expect(page.locator('#name-songs')).toBeChecked();
   await page.getByRole('button', { name: 'Make some music' }).click();
   await expect.poll(() => page.evaluate(() => window.__titleRequests.length)).toBe(batchNumber);
-  await expect(page.locator('.song-row')).toHaveCount(4);
+  await expect(page.locator('.song-row')).toHaveCount(previousCount + 4);
 }
 
 async function libraryIds(page) {
@@ -227,7 +228,7 @@ async function libraryIds(page) {
 async function assertSavedScores(page, expected) {
   for (let index = 0; index < expected.length; index++) {
     const pending = page.waitForEvent('download');
-    await page.locator('.song-txt-download').nth(index).click();
+    await page.locator(`[data-song-download="${expected[index].id}"]`).click();
     const saved = (await readFile(await (await pending).path())).toString().trim();
     expect(saved.slice(saved.indexOf(':'))).toBe(expected[index].rtttl.slice(expected[index].rtttl.indexOf(':')));
   }
@@ -245,20 +246,20 @@ engineTest('four streamed melodies keep their identities and scores through nami
     await startNamedBatch(page, batch + 1);
     const originals = await page.evaluate(index => window.__melodyBatches[index], batch);
     const ids = originals.map(song => song.id);
-    expect(await libraryIds(page)).toEqual(ids);
+    expect(await libraryIds(page)).toEqual([...previousIds, ...ids]);
     expect(ids.some(id => previousIds.includes(id))).toBe(false);
     previousIds.push(...ids);
     for (let index = 0; index < 4; index++) {
       await page.evaluate(index => window.__naming.progress(index), index);
       await expect(page.locator('.song-naming')).toHaveCount(3 - index);
-      expect(await libraryIds(page)).toEqual(ids);
+      expect(await libraryIds(page)).toEqual(previousIds);
     }
     await page.evaluate(() => window.__naming.done());
     await expect(page.locator('#generation-message')).toContainText('4 melodies, made on your device.');
-    await expect(page.locator('.song-row')).toHaveCount(4);
+    await expect(page.locator('.song-row')).toHaveCount((batch + 1) * 4);
     await expect(page.locator('#next-song')).toBeEnabled();
     expect(await page.evaluate(() => window.__forcedTitleStops)).toBe(0);
-    expect(new Set(await page.locator('.song-title').allTextContents()).size).toBe(4);
+    expect(new Set(await page.locator('.song-title').allTextContents()).size).toBe((batch + 1) * 4);
     await assertSavedScores(page, originals);
   }
   const history = await page.evaluate(() => window.__titleRequests[1].usedTitles);
@@ -295,8 +296,9 @@ engineTest('title errors and cancellation keep all four songs and already comple
     }
     await expect(page.locator('#generate-button')).toBeEnabled();
     await expect(page.locator('.song-naming')).toHaveCount(0);
-    expect(await libraryIds(page)).toEqual(originals.map(song => song.id));
-    await expect(page.locator('.song-title').first()).not.toHaveText('Melody 01');
+    const completed = await page.evaluate(() => window.__melodyBatches.flat().map(song => song.id));
+    expect(await libraryIds(page)).toEqual(completed);
+    await expect(page.locator('.song-title').nth(batch * 4)).not.toHaveText('Melody 01');
     await assertSavedScores(page, originals);
   }
 });

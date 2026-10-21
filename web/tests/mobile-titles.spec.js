@@ -40,6 +40,7 @@ for (const browserName of ['chromium', 'firefox', 'webkit']) {
       page.on('pageerror', error => errors.push(error.message));
       page.on('crash', () => errors.push('Page crashed'));
       const compose = async seed => {
+        const previousCount = await page.locator('.song-row').count();
         await page.locator('#song-count').selectOption('4');
         await page.locator('#length').selectOption('24');
         if (!(await page.locator('#name-songs').isChecked())) await page.locator('.naming-option').click();
@@ -52,7 +53,7 @@ for (const browserName of ['chromium', 'firefox', 'webkit']) {
         await page.locator('#keep-seed').check();
         await page.getByRole('button', { name: 'Make some music' }).click();
         await expect(page.locator('#generation-message')).toContainText('4 melodies, made on your device.', { timeout: 240000 });
-        await expect(page.locator('.song-row')).toHaveCount(4);
+        await expect(page.locator('.song-row')).toHaveCount(previousCount + 4);
         await expect(page.getByRole('alert')).not.toBeVisible();
         const batches = await page.evaluate(() => ({
           melodies: window.__namingTestMessages.findLast(event => event.url.includes('melody-worker') && event.data.type === 'done')?.data.songs,
@@ -64,7 +65,7 @@ for (const browserName of ['chromium', 'firefox', 'webkit']) {
         expect(batches.named.filter(song => song.naming?.status === 'named').length).toBeGreaterThan(0);
         expect(batches.named.map(song => song.id)).toEqual(batches.melodies.map(song => song.id));
         expect(batches.named.map(musicalBytes)).toEqual(batches.melodies.map(musicalBytes));
-        const titles = await page.locator('.song-title').allTextContents();
+        const titles = (await page.locator('.song-title').allTextContents()).slice(-4);
         expect(new Set(titles.map(title => title.toLowerCase())).size).toBe(4);
         expect(titles).not.toContain('Hello, daydream.');
         expect(titles).toEqual(batches.named.map(song => song.title));

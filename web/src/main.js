@@ -3,6 +3,9 @@ import { parseRtttl } from './rtttl.js';
 import { createPlayer, renderWav, renderMp3 } from './audio.js';
 import { primeBrowserCache, connectWorkerCache } from './model-cache.js';
 import { isWebKitEngine, WEBKIT_CPU_REASON } from './browser-policy.js';
+import { checkConverter, MAX_UPLOAD_BYTES, transcriptionParameters, transcribeAudio } from './converter-client.js';
+import { appendStudioSongs, changeScoreTempo, transposeScore } from './studio-score.js';
+import { validateOptions } from './sampler.js';
 
 const browserCacheReady = primeBrowserCache().catch(() => {});
 
@@ -33,6 +36,8 @@ const state = {
   leavingDuringGeneration: false,
   usedTitles: [], usedNames: [],
   disposeTitleWorker: null,
+  converterReady: false, converting: false, conversionController: null, conversionSource: null,
+  sourceUrl: null, sourceDuration: null, excerptPlaying: false, continuationSource: null,
 };
 const LIBRARY_STORAGE_KEY = 'pocket-composer-library-v1';
 const MAX_SAVED_SONGS = 64;
@@ -44,6 +49,7 @@ function saveLibrary() {
     id: song.id, rtttl: song.rtttl, title: song.title, name: song.name,
     source: song.source, settings: song.settings || song.generation_settings,
     naming: song.naming, namingPending: Boolean(song.namingPending), seed: song.seed,
+    parentId: song.parentId, prefixEventCount: song.prefixEventCount,
   }));
   try {
     localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify({ version: 1, songs,
@@ -99,9 +105,10 @@ function clearError() { $('#error-message').hidden = true; }
 function songDescription(song, includeDuration = false) {
   const parsed = song === state.currentSong ? state.parsedSong : parseRtttl(song.rtttl);
   const settings = song.settings || song.generation_settings || {};
-  const source = song.source === 'demo' ? 'Studio demo' : song.source === 'import' ? 'Your RTTTL' : PROFILE_LABELS[settings.profile || 'none'] || 'Melody';
+  const source = ({ demo: 'Studio demo', import: 'Your RTTTL', converted: 'Audio conversion', edited: 'Edited copy', continuation: 'AI continuation' })[song.source] || PROFILE_LABELS[settings.profile || 'none'] || 'Melody';
   const key = settings.tonic && settings.mode ? `${settings.tonic} ${settings.mode === 'natural-minor' ? 'minor' : settings.mode}` : null;
-  return [source, `${parsed.bpm} BPM`, key, includeDuration ? formatTime(parsed.durationSeconds) : null].filter(Boolean).join(' · ');
+  const original = song.source === 'converted' && settings.conversion?.filename ? settings.conversion.filename : null;
+  return [source, `${parsed.bpm} BPM`, key, original, includeDuration ? formatTime(parsed.durationSeconds) : null].filter(Boolean).join(' · ');
 }
 
 const player = createPlayer({
@@ -141,6 +148,7 @@ function stopPlayback() {
 async function togglePlayback() {
   if (player.isPlaying) { stopPlayback(); return; }
   try {
+    $('#source-audio').pause(); state.excerptPlaying = false;
     await player.play(state.parsedSong, { waveform: $('#waveform').value, volume: Number($('#volume').value) });
     setPlaybackUi(player.isPlaying);
   } catch (error) { stopPlayback(); showError(error); }
@@ -174,13 +182,15 @@ function selectSong(song) {
   state.parsedSong = parsed;
   $('#now-playing-title').textContent = displayTitle(song);
   $('#now-playing-meta').textContent = songDescription(song);
-  const eyebrow = song.source === 'demo' ? 'A LITTLE SOMETHING TO START' : song.source === 'import' ? 'YOUR TUNE, RIGHT AT HOME' : 'FRESH FROM YOUR BROWSER';
+  const eyebrow = ({ demo: 'A LITTLE SOMETHING TO START', import: 'YOUR TUNE, RIGHT AT HOME', converted: 'FROM YOUR AUDIO EXCERPT', edited: 'YOUR EDITED VERSION', continuation: 'YOUR MELODY, CONTINUED' })[song.source] || 'FRESH FROM YOUR BROWSER';
   $('#player-eyebrow').innerHTML = `<span class="live-dot"></span>${eyebrow}`;
   $('#duration-time').textContent = formatTime(parsed.durationSeconds);
   $('#piano-roll').setAttribute('aria-label', `${parsed.events.length} events across ${formatTime(parsed.durationSeconds)}. Higher bars represent higher notes.`);
   $('#previous-song').disabled = state.songs.length < 2;
   $('#next-song').disabled = state.songs.length < 2;
   drawNotes(parsed);
+  $('#score-input').value = song.rtttl;
+  $('#score-bpm').value = String(parsed.bpm);
   for (const row of $$('.song-row')) {
     const selected = row.dataset.songId === String(song.id);
     row.classList.toggle('is-selected', selected);
@@ -191,7 +201,7 @@ function selectSong(song) {
 
 function drawLibrary() {
   $('#library-empty').hidden = state.songs.length > 0;
-  $('#library-count').textContent = state.songs.length ? `${String(state.songs.length).padStart(2, '0')} LITTLE ${state.songs.length === 1 ? 'MELODY' : 'MELODIES'}` : 'THE LISTENING ROOM';
+  $('#library-count').textContent = state.songs.length ? `${String(state.songs.length).padStart(2, '0')} LITTLE ${state.songs.length === 1 ? 'MELODY' : 'MELODIES'}` : 'YOUR WORKSPACE';
   $('#song-list').innerHTML = state.songs.map((song, index) => {
     const parsed = parseRtttl(song.rtttl);
     const selected = String(song.id) === String(state.currentSong.id);
@@ -289,7 +299,7 @@ function shuffleSeed() {
   crypto.getRandomValues(value);
   $('#seed').value = String(value[0] & 0x7fffffff);
 }
-function generationOptions() {
+function generationOptions({ continuation = false } = {}) {
   const maximum = integerInput('#length', 'Melody length', 16, 96);
   const options = {
     profile: state.profile === 'none' ? null : state.profile,
@@ -305,8 +315,8 @@ function generationOptions() {
   if (!Number.isFinite(options.topP) || options.topP < 0.1 || options.topP > 1) throw new Error('Top-p must be between 0.1 and 1.');
   if ($('#tonic').value !== 'auto' && state.profile !== 'none') options.tonic = $('#tonic').value;
   if ($('#mode').value !== 'auto' && state.profile !== 'none') options.mode = $('#mode').value;
-  if ($('#tempo-mode').value === 'fixed') options.bpm = integerInput('#bpm', 'Tempo', 25, 900);
-  if ($('#tempo-mode').value === 'range') {
+  if (!continuation && $('#tempo-mode').value === 'fixed') options.bpm = integerInput('#bpm', 'Tempo', 25, 900);
+  if (!continuation && $('#tempo-mode').value === 'range') {
     const lower = integerInput('#bpm-min', 'Minimum tempo', 25, 900);
     const upper = integerInput('#bpm-max', 'Maximum tempo', 25, 900);
     if (lower > upper) throw new Error('The minimum tempo must be no greater than the maximum.');
@@ -323,6 +333,7 @@ function setBusy(busy) {
   $('#cancel-button').hidden = !busy;
   $('#cancel-button').disabled = false;
   $('#cancel-button').textContent = 'Stop generation';
+  updateStudioButtons();
   if (!busy) { chooseProfile(state.profile); $('#hardware-status').dataset.state = state.backend === 'wasm' ? 'cpu' : 'ready'; }
   else $('#hardware-status').dataset.state = 'busy';
   if (!busy) saveLibrary();
@@ -377,11 +388,11 @@ function receiveSong(song) {
   if (!state.receivedFirstSong) {
     state.receivedFirstSong = true;
     stopPlayback();
-    state.songs = [];
   }
-  const record = { ...song, id: song.id ?? `${state.jobId}-${state.incomingSongs.length}`, source: 'generated', namingPending: state.namingRequested };
+  if (state.continuationSource) retainSourceVersion(state.continuationSource);
+  const record = { ...song, id: song.id ?? `${state.jobId}-${state.incomingSongs.length}`, source: state.continuationSource ? 'continuation' : 'generated', parentId: state.continuationSource?.id, namingPending: state.namingRequested };
   state.incomingSongs.push(record);
-  state.songs.push(record);
+  state.songs = appendStudioSongs(state.songs, [record], MAX_SAVED_SONGS);
   if (state.incomingSongs.length === 1) selectSong(record);
   drawLibrary();
   saveLibrary();
@@ -507,20 +518,29 @@ function getWorker() {
   return worker;
 }
 
-async function generate(event) {
-  event.preventDefault();
-  if (state.busy) return;
+async function generate(event, promptSong = null) {
+  event?.preventDefault();
+  if (state.busy || state.converting) return;
   clearError();
   if (!$('#keep-seed').checked) shuffleSeed();
   let options;
-  try { options = generationOptions(); } catch (error) { showError(error); return; }
+  try {
+    options = generationOptions({ continuation: Boolean(promptSong) });
+    if (promptSong) {
+      options.promptSong = promptSong;
+      // The source tempo and every source event are preserved by the sampler.
+      delete options.bpm; delete options.bpmRange;
+    }
+    validateOptions(options);
+  } catch (error) { showError(error); return; }
+  state.continuationSource = promptSong ? { ...state.currentSong } : null;
   state.jobId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const jobId = state.jobId;
   state.incomingSongs = []; state.receivedFirstSong = false; state.cancelled = false;
   state.finishing = false;
   state.leavingDuringGeneration = false;
   state.namingRequested = $('#name-songs').checked;
-  setBusy(true); setProgress('Getting the local melody model ready…');
+  setBusy(true); setProgress(promptSong ? 'Keeping the selected melody and preparing a new phrase…' : 'Getting the local melody model ready…');
   try {
     const modelManifest = await loadManifest();
     await browserCacheReady;
@@ -549,12 +569,220 @@ function cancelGeneration() {
 function importTune(text) {
   try {
     const parsed = parseRtttl(text);
-    const record = { id: `import-${Date.now()}`, title: parsed.name, name: parsed.name, rtttl: text.replace(/^\uFEFF/, '').trim(), source: 'import' };
-    clearError(); state.songs.push(record); selectSong(record); drawLibrary();
+    const record = { id: newSongId('import'), title: parsed.name, name: parsed.name, rtttl: text.replace(/^\uFEFF/, '').trim(), source: 'import' };
+    clearError(); state.songs = appendStudioSongs(state.songs, [record], MAX_SAVED_SONGS); selectSong(record); drawLibrary();
     saveLibrary();
     $('#player-card').scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'nearest' });
   } catch (error) { showError(error); }
 }
+
+function newSongId(prefix) {
+  return `${prefix}-${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
+}
+
+function setStudioMode(mode, focus = false) {
+  const converting = mode === 'convert';
+  $('#converter-form').hidden = !converting;
+  $('#composer-form').hidden = converting;
+  $('#composer-heading').textContent = converting ? 'Find the melody.' : 'Set the mood.';
+  for (const [id, selected] of [['convert-tab', converting], ['compose-tab', !converting]]) {
+    const tab = $(`#${id}`);
+    tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1;
+    if (selected && focus) tab.focus();
+  }
+}
+
+function updateStudioButtons() {
+  $('#convert-button').disabled = !state.converterReady || !state.conversionSource || state.converting || state.busy;
+  $('#generate-button').disabled = state.busy || state.converting;
+  $('#continue-song').disabled = state.busy || state.converting;
+  $('#converter-controls').disabled = state.converting;
+  $('#convert-label').textContent = state.converting ? 'Following the melody…' : 'Convert excerpt';
+}
+
+async function connectConverter() {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4000);
+  $('#check-converter').disabled = true;
+  $('#converter-health').textContent = 'Checking local converter…';
+  try {
+    const health = await checkConverter({ signal: controller.signal });
+    state.converterReady = health.ready === true;
+    const missing = health.missing_dependencies || health.missing;
+    const dependencyHint = Array.isArray(missing) && missing.every(value => typeof value === 'string') ? `: ${missing.join(', ')}` : '';
+    $('#converter-health').textContent = state.converterReady ? 'Local converter connected' : `Local converter needs its audio dependencies${dependencyHint}`;
+    $('#converter-health').dataset.state = state.converterReady ? 'ready' : 'unavailable';
+    $('#converter-help').hidden = state.converterReady;
+  } catch {
+    state.converterReady = false;
+    $('#converter-health').textContent = 'Audio conversion is available in the local studio';
+    $('#converter-health').dataset.state = 'unavailable';
+    $('#converter-help').hidden = false;
+  } finally { clearTimeout(timeout); $('#check-converter').disabled = false; updateStudioButtons(); }
+}
+
+function selectAudioFile(file) {
+  const source = $('#source-audio');
+  source.pause(); state.excerptPlaying = false;
+  if (state.sourceUrl) URL.revokeObjectURL(state.sourceUrl);
+  state.sourceUrl = null; state.conversionSource = null; state.sourceDuration = null;
+  source.removeAttribute('src'); source.hidden = true;
+  $('#play-excerpt').disabled = true;
+  $('#conversion-results').hidden = true;
+  $('#conversion-status').hidden = true;
+  if (!file) { updateStudioButtons(); return; }
+  if (file.size > MAX_UPLOAD_BYTES || file.size === 0) {
+    $('#audio-file').value = ''; updateStudioButtons();
+    showError('Choose a nonempty audio file no larger than 32 MiB. Export a short excerpt for larger songs.'); return;
+  }
+  state.conversionSource = file;
+  state.sourceUrl = URL.createObjectURL(file);
+  source.src = state.sourceUrl; source.hidden = false;
+  $('#audio-file-info').textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MiB`;
+  $('#excerpt-start').value = '0'; $('#excerpt-duration').value = '12';
+  $('#play-excerpt').disabled = false;
+  clearError(); updateStudioButtons();
+}
+
+function excerptOptions() {
+  const options = { start: Number($('#excerpt-start').value), duration: Number($('#excerpt-duration').value),
+    bpm: $('#conversion-bpm').value, source_mode: $('#source-mode').value, preset: $('#conversion-preset').value };
+  transcriptionParameters(state.conversionSource, options);
+  if (state.sourceDuration !== null) {
+    if (options.start >= state.sourceDuration) throw new Error('Start the excerpt before the end of the audio file.');
+    options.duration = Math.min(options.duration, state.sourceDuration - options.start);
+  }
+  transcriptionParameters(state.conversionSource, options);
+  return options;
+}
+
+async function playExcerpt() {
+  try {
+    const options = excerptOptions();
+    stopPlayback();
+    const source = $('#source-audio');
+    source.currentTime = options.start;
+    state.excerptPlaying = true;
+    await source.play();
+  } catch (error) { state.excerptPlaying = false; showError(error); }
+}
+
+async function convertExcerpt(event) {
+  event.preventDefault();
+  if (state.converting || state.busy || !state.converterReady) return;
+  let options;
+  try { options = excerptOptions(); } catch (error) { showError(error); return; }
+  const file = state.conversionSource;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error('Conversion took longer than ten minutes. Check the local server before trying again.')), 600000);
+  state.conversionController = controller; state.converting = true;
+  clearError(); updateStudioButtons();
+  const status = $('#conversion-status');
+  status.hidden = false; status.textContent = 'Starting conversion…';
+  $('#conversion-results').hidden = true;
+  try {
+    const result = await transcribeAudio(file, options, { signal: controller.signal, onProgress: message => { status.textContent = message; } });
+    const records = result.candidates.map((candidate, index) => {
+      const parsed = parseRtttl(candidate.rtttl);
+      return { id: newSongId('converted'), title: candidate.name || `Interpretation ${index + 1}`, name: parsed.name,
+        rtttl: candidate.rtttl, source: 'converted', settings: { ...candidate.settings,
+          conversion: { filename: file.name, ...result.analysis, score: candidate.score } } };
+    });
+    state.songs = appendStudioSongs(state.songs, records, MAX_SAVED_SONGS);
+    selectSong(records[0]); drawLibrary(); saveLibrary();
+    status.textContent = `${records.length} ${records.length === 1 ? 'interpretation added' : 'interpretations added'} to your workspace. Compare each with the original excerpt.`;
+    const summary = $('#conversion-results');
+    summary.replaceChildren(); summary.hidden = false;
+    records.forEach((record, index) => {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'conversion-candidate';
+      const score = result.candidates[index].score;
+      button.textContent = `${record.title}${typeof score === 'number' && Number.isFinite(score) ? ` · source evidence ${Math.round(score * 100)}%` : ''}`;
+      button.addEventListener('click', () => { selectSong(record); void togglePlayback(); });
+      summary.appendChild(button);
+    });
+    const help = document.createElement('p'); help.className = 'field-description';
+    help.textContent = 'Source evidence measures agreement with detected notes; it is not transcription accuracy.';
+    summary.appendChild(help);
+    for (const warning of (Array.isArray(result.warnings) ? result.warnings : [])) {
+      if (typeof warning !== 'string') continue;
+      const message = document.createElement('p'); message.className = 'field-description'; message.textContent = warning; summary.appendChild(message);
+    }
+  } catch (error) {
+    if (error?.name !== 'AbortError') { status.textContent = 'Conversion did not finish. Your existing melodies are kept.'; showError(error); }
+  } finally {
+    clearTimeout(timeout); state.conversionController = null; state.converting = false; updateStudioButtons();
+  }
+}
+
+function retainSourceVersion(song) {
+  // The bundled demo is playable before it is a library entry. It becomes a
+  // saved source when the user derives a new version, just like an import.
+  if (!state.songs.some(existing => String(existing.id) === String(song.id))) {
+    state.songs = appendStudioSongs(state.songs, [{ ...song }], MAX_SAVED_SONGS);
+  }
+}
+
+function saveScoreVersion(rtttl, label) {
+  try {
+    const parsed = parseRtttl(rtttl);
+    const record = { id: newSongId('edited'), title: `${parsed.name} · ${label}`, name: parsed.name,
+      rtttl: rtttl.trim(), source: 'edited', parentId: state.currentSong.id };
+    retainSourceVersion(state.currentSong);
+    state.songs = appendStudioSongs(state.songs, [record], MAX_SAVED_SONGS);
+    clearError(); selectSong(record); drawLibrary(); saveLibrary();
+  } catch (error) { showError(error); }
+}
+
+$('#compose-tab').addEventListener('click', () => setStudioMode('compose'));
+$('#convert-tab').addEventListener('click', () => setStudioMode('convert'));
+$('.studio-modes').addEventListener('keydown', event => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const mode = event.key === 'Home' ? 'compose' : event.key === 'End' ? 'convert' : $('#convert-tab').getAttribute('aria-selected') === 'true' ? 'compose' : 'convert';
+  setStudioMode(mode, true);
+});
+$('#check-converter').addEventListener('click', connectConverter);
+$('#audio-file').addEventListener('change', event => selectAudioFile(event.target.files?.[0]));
+$('#source-audio').addEventListener('loadedmetadata', () => {
+  const source = $('#source-audio');
+  if (!state.conversionSource || source.currentSrc !== state.sourceUrl) return;
+  const duration = source.duration;
+  if (Number.isFinite(duration) && duration > 0) {
+    state.sourceDuration = duration;
+    // Metadata may arrive after the user has already chosen an excerpt.
+    const requested = Number($('#excerpt-duration').value);
+    if (Number.isFinite(requested) && requested > duration) $('#excerpt-duration').value = String(duration);
+    $('#audio-file-info').textContent = `${state.conversionSource.name} · ${(state.conversionSource.size / 1024 / 1024).toFixed(1)} MiB · ${formatTime(duration)}`;
+  }
+});
+$('#source-audio').addEventListener('play', stopPlayback);
+$('#source-audio').addEventListener('timeupdate', () => {
+  if (!state.excerptPlaying) return;
+  const end = Number($('#excerpt-start').value) + Number($('#excerpt-duration').value);
+  if ($('#source-audio').currentTime >= end) { $('#source-audio').pause(); state.excerptPlaying = false; }
+});
+$('#source-audio').addEventListener('error', () => {
+  if (state.conversionSource) $('#audio-file-info').textContent = `${state.conversionSource.name} · This browser cannot preview this codec. The local converter may still decode it.`;
+});
+$('#play-excerpt').addEventListener('click', playExcerpt);
+$('#converter-form').addEventListener('submit', convertExcerpt);
+$('#save-score').addEventListener('click', () => saveScoreVersion($('#score-input').value, 'edited'));
+for (const [id, shift] of [['transpose-down', -1], ['transpose-up', 1]]) {
+  $(`#${id}`).addEventListener('click', () => {
+    try { saveScoreVersion(transposeScore($('#score-input').value, shift), `${shift > 0 ? '+' : ''}${shift} semitone`); }
+    catch (error) { showError(error); }
+  });
+}
+$('#apply-score-tempo').addEventListener('click', () => {
+  try { saveScoreVersion(changeScoreTempo($('#score-input').value, Number($('#score-bpm').value)), `${$('#score-bpm').value} BPM`); }
+  catch (error) { showError(error); }
+});
+$('#continue-song').addEventListener('click', event => {
+  setStudioMode('compose');
+  void generate(event, { name: state.parsedSong.name, bpm: state.parsedSong.bpm,
+    events: state.parsedSong.events.map(({ pitch, duration, dotted }) => ({ pitch, duration, dotted })) });
+});
 
 $$('[data-profile]').forEach(button => button.addEventListener('click', () => chooseProfile(button.dataset.profile)));
 $('#composer-form').addEventListener('submit', generate);
@@ -597,6 +825,8 @@ document.addEventListener('keydown', event => {
 window.addEventListener('pagehide', () => {
   state.leavingDuringGeneration = state.busy;
   saveLibrary(); stopPlayback();
+  $('#source-audio').pause();
+  state.conversionController?.abort();
   if (state.busy) {
     state.cancelled = true; state.jobId = null; state.finishing = false;
   }
@@ -638,3 +868,4 @@ async function detectHardware() {
   $('#hardware-status').dataset.state = 'cpu';
 }
 void detectHardware();
+void connectConverter();

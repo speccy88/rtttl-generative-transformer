@@ -1,4 +1,49 @@
-# Pocket Composer
+# RTTTL Studio
+
+The browser app now combines **audio conversion, score editing, composition,
+continuation and exports** in one workspace. It is the shared front end for this
+repository and [`speccy88/mp3_to_rtttl`](https://github.com/speccy88/mp3_to_rtttl).
+
+## Complete local studio
+
+Keep both repositories beside one another and use their matching feature branches
+until merged. Install the converter's existing Python 3.11 requirements, then run
+`npm ci` in this `web/` directory. From `mp3_to_rtttl`, run:
+
+```sh
+python rtttl_studio.py --build-web
+```
+
+Open **http://127.0.0.1:8765/**. One origin serves the browser UI and local audio
+conversion API; the transformer continues to run in this browser. The build flag
+sets `VITE_BASE_PATH=/` across platforms. After building, omit the flag for faster
+startup. If `npm ci` fails downloading optional native ONNX components from NuGet,
+`npm ci --ignore-scripts` is a tested browser-build fallback.
+
+See the converter's [START_HERE guide](https://github.com/speccy88/mp3_to_rtttl/blob/feat/rtttl-studio/START_HERE.md)
+and [API contract](https://github.com/speccy88/mp3_to_rtttl/blob/feat/rtttl-studio/docs/STUDIO_API.md).
+
+**Convert audio** accepts a local file up to 32 MiB and an excerpt of 0.25–30 seconds.
+Preview the original, optionally set its BPM, compare the returned interpretations,
+and select one in the common workspace. Source-evidence percentages are not
+transcription accuracy. The Python process removes temporary uploads after success
+or failure; the browser does not persist the original audio file.
+
+**Edit the selected melody** saves RTTTL edits, semitone transposition or tempo
+changes as separate versions. **Continue selected tune** feeds the selected score's
+notes/rests/rhythm to the actual model and preserves its tempo. The length control
+means additional events during continuation. Original and new scores coexist, up
+to the existing 64-score storage limit.
+
+The model supports durations through 32nds. Imported 64th notes remain playable,
+but continuation rejects them explicitly. Continuation creates new music and is
+never applied automatically to make a transcription appear more accurate.
+
+The static GitHub Pages app supports composition, continuation, editing and export
+without the converter. It shows local setup instructions for audio conversion;
+GitHub Pages cannot execute the Python transcription pipeline.
+
+## Standalone browser composer
 
 A browser music studio for the [RTTTL Generative Transformer](https://huggingface.co/charlie88agent/rtttl-generative-transformer): make melodies, listen with a moving piano roll, optionally name them, and download RTTTL text, WAV, or MP3.
 
@@ -55,13 +100,31 @@ Website storage is still managed by the browser: clearing site data, private bro
 
 The [mobile repair validation record](../results/mobile_browser_fix_validation.json) covers multi-song naming, library recovery, chunked persistence and real inference with model networking blocked after reload in Chromium, Firefox and WebKit. The [earlier cache validation](../results/browser_cache_validation.json) describes the previous implementation. WebKit runs at a mobile viewport; this does not replace testing on a physical iPhone.
 
-Each visitor downloads and runs models on their own device. This static app has no hosted inference endpoint, API key, account requirement, or analytics code. Generated notes, imported RTTTL and title prompts are processed in the browser rather than uploaded for inference. GitHub Pages and Hugging Face receive the ordinary requests needed to serve the site, runtime and model files.
+Each visitor downloads and runs generation models on their own device. This static app has no hosted inference endpoint, API key, account requirement, or analytics code. Generated notes, imported RTTTL and title prompts are processed in the browser rather than uploaded for inference. In the complete local studio, selected audio files are sent to the same-origin Python process for transcription. GitHub Pages and Hugging Face receive the ordinary requests needed to serve the site, runtime and model files.
 
 WAV and MP3 are synthesized locally from the same score and selected waveform. MP3 loads its small encoder only on export. Exports are mono, 44.1 kHz; MP3 uses 128 kbps and can contain encoder padding. Audio is limited to five minutes per song.
 
 The latest library (up to 64 scores) and completed titles are saved on the device as soon as each song is ready, before the optional title model runs. Reloading restores the scores and selection, including an interrupted batch, without starting models automatically. Naming updates only each song's title and RTTTL name; its notes, identity and place in the batch are preserved. Recent title history prevents repeated names across batches and reloads. If the small model gives unusable or repeated suggestions twice, a distinct title is derived from the melody's measured character and recorded as a fallback. Download songs for a durable backup, since clearing website data also clears the saved library.
 
 ## Model versions
+
+### Verify continuation against actual weights
+
+The optional `scripts/verify-continuation.mjs` check uses native ONNX Runtime CPU
+inference with the same immutable published checkpoint. Supply a directory
+containing `model.onnx` and `tokenizer.json` from the manifest's pinned URLs:
+
+```sh
+node scripts/verify-continuation.mjs /path/to/model-files /path/to/result.json
+```
+
+It verifies hashes before running and never downloads files itself. It checks that
+the first model input contains the source score, the original events/BPM are
+unchanged, extra events use actual inference, and the same seed reproduces output.
+Recorded evidence is in `../results/studio_continuation_native.json`. This native
+check does not establish browser WebGPU/WASM or physical iPhone compatibility.
+
+### Pinned downloads
 
 [`public/model-manifest.json`](public/model-manifest.json) pins the melody ONNX model and tokenizer to an immutable Hugging Face revision, records their sizes/hashes, and identifies the local runtime path. [`src/title-utils.js`](src/title-utils.js) pins the optional title model separately. Changes to the published model's default branch do not silently change the browser app's selected weights; update these pins deliberately after validation.
 

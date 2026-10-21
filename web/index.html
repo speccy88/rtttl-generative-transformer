@@ -4,15 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f7f4ec" />
-    <meta name="description" content="Make tiny melodies with a local AI music model. Compose, play, and download RTTTL songs right in your browser with Pocket Composer." />
-    <title>Pocket Composer — little melodies, made by you</title>
+    <meta name="description" content="Convert audio excerpts, edit melodies, and continue them with your local RTTTL transformer in one studio." />
+    <title>RTTTL Studio — convert, edit, and compose</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23272235'/%3E%3Cpath d='M28 43V17l21-4v24' fill='none' stroke='%23f7f4ec' stroke-width='4'/%3E%3Cellipse cx='21' cy='44' rx='9' ry='6' fill='%23ff775d'/%3E%3Cellipse cx='42' cy='38' rx='9' ry='6' fill='%23ff775d'/%3E%3C/svg%3E" />
   </head>
   <body>
     <a class="skip-link" href="#composer">Skip to composer</a>
     <div class="page-shell">
       <header class="site-header">
-        <a class="wordmark" href="#" aria-label="Pocket Composer home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>Pocket Composer<span class="brand-dot">♫</span></a>
+        <a class="wordmark" href="#" aria-label="RTTTL Studio home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>RTTTL Studio<span class="brand-dot">♫</span></a>
         <nav aria-label="Project links">
           <a href="https://huggingface.co/charlie88agent/rtttl-generative-transformer" target="_blank" rel="noopener noreferrer">The model <span aria-hidden="true">↗</span></a>
           <a href="https://github.com/speccy88/rtttl-generative-transformer" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
@@ -20,31 +20,41 @@
       </header>
 
       <main>
-        <section class="hero" aria-labelledby="hero-title">
+        <section class="hero studio-hero" aria-labelledby="hero-title">
           <div class="hero-copy">
-            <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span> A little AI music playground</p>
-            <h1 id="hero-title">Small songs.<br /><em>Big character.</em></h1>
-            <p class="hero-description">A hook for your next game. A tune for no reason.<br class="desktop-break" /> Turn a little curiosity into your own tiny melody.</p>
+            <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span> FROM RECORDING TO RINGTONE</p>
+            <h1 id="hero-title">Your tune. <em>Your studio.</em></h1>
+            <p class="hero-description">Convert a short audio excerpt, edit the notes, or let your transformer write the next phrase.</p>
           </div>
-          <div class="hero-art" aria-hidden="true">
-            <svg class="music-art" viewBox="0 0 580 260" fill="none">
-              <path d="M8 141C104 36 169 57 266 116s182 128 303-12M8 157C104 52 169 73 266 132s182 128 303-12M8 173C104 68 169 89 266 148s182 128 303-12M8 189C104 84 169 105 266 164s182 128 303-12M8 205C104 100 169 121 266 180s182 128 303-12" stroke="#d5cfc5" stroke-width="1.3" />
-              <g class="note note-one" fill="#272235"><ellipse cx="138" cy="112" rx="17" ry="11" transform="rotate(-25 138 112)"/><path d="M151 107V34h4v73z"/><path d="M153 33c4 18 33 22 18 54 5-27-16-19-18-40z"/></g>
-              <g class="note note-two" fill="#ff765d"><ellipse cx="278" cy="145" rx="19" ry="12" transform="rotate(-25 278 145)"/><path d="M293 139V52h4v88z"/><path d="M295 51l70 20v16l-70-20z"/><path d="M361 75h4v86h-4z"/><ellipse cx="347" cy="166" rx="19" ry="12" transform="rotate(-25 347 166)"/></g>
-              <g class="note note-three" fill="#272235"><ellipse cx="467" cy="158" rx="17" ry="11" transform="rotate(-25 467 158)"/><path d="M480 153V75h4v79z"/></g>
-              <path d="m81 25 3 10 10 3-10 3-3 10-3-10-10-3 10-3z" fill="#b7bb75"/><path d="m401 32 2 7 7 2-7 2-2 7-2-7-7-2 7-2z" fill="#ff765d"/><circle cx="523" cy="67" r="4" fill="#b7bb75"/>
-              <path d="M203 211c16 8 24 9 38 9m-20-10 19 10-21 8" stroke="#272235" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-              <text x="262" y="229" fill="#787366" font-size="13" font-family="Georgia, serif" font-style="italic">your next earworm starts here</text>
-            </svg>
-            <div class="local-stamp"><span>Made right here</span><strong>on your<br />device.</strong><span>Private by design ↗</span></div>
-          </div>
+          <div class="studio-workflow" aria-label="Studio workflow"><span>01 <strong>Convert</strong></span><span>02 <strong>Edit &amp; listen</strong></span><span>03 <strong>Continue</strong></span></div>
         </section>
 
         <div class="studio-topline"><span><span class="tiny-cross" aria-hidden="true">✳</span> THE STUDIO</span><span class="hardware-status" id="hardware-status"><span class="status-dot"></span> Checking your browser</span></div>
         <div class="studio-grid">
           <section class="composer-panel" id="composer" aria-labelledby="composer-heading">
+            <div class="studio-modes" role="tablist" aria-label="Create a melody">
+              <button id="compose-tab" type="button" role="tab" aria-controls="composer-form" aria-selected="true" tabindex="0">Compose</button>
+              <button id="convert-tab" type="button" role="tab" aria-controls="converter-form" aria-selected="false" tabindex="-1">Convert audio</button>
+            </div>
             <div class="panel-heading"><span class="step-number">01</span><h2 id="composer-heading">Set the mood.</h2><span class="small-note" aria-hidden="true">♮</span></div>
-            <form id="composer-form">
+            <form id="converter-form" role="tabpanel" aria-labelledby="convert-tab" hidden>
+              <div class="converter-connection"><span id="converter-health" role="status">Checking local converter…</span><button id="check-converter" type="button" class="text-button">Check again</button></div>
+              <details id="converter-help" class="converter-help" hidden><summary>Open the complete studio locally</summary><p>Audio conversion uses the Python converter on your computer. Build this frontend, then run from your <strong>mp3_to_rtttl</strong> folder:</p><code>python rtttl_studio.py --web-root ../rtttl-generative-transformer/web/dist</code><p>Open the address printed in the terminal. This hosted page can still compose, edit, and play melodies.</p></details>
+              <fieldset id="converter-controls" class="controls-fieldset">
+                <div class="field-group"><label class="field-label" for="audio-file">Your audio <span class="field-hint">32 MiB maximum</span></label><input id="audio-file" type="file" accept="audio/*,.mp3,.wav,.flac,.m4a,.ogg" /><p id="audio-file-info" class="field-description">Choose a clear lead or isolated vocal/instrument. Dense mixes are harder to reduce to one line.</p></div>
+                <audio id="source-audio" controls preload="metadata" hidden aria-label="Original audio"></audio>
+                <div class="two-columns field-group"><label><span class="field-label">Start, seconds</span><input id="excerpt-start" type="number" min="0" step="any" value="0" /></label><label><span class="field-label">Length, seconds</span><input id="excerpt-duration" type="number" min="0.25" max="30" step="any" value="12" /></label></div>
+                <button id="play-excerpt" type="button" class="small-primary excerpt-play" disabled>▶ Listen to this excerpt</button>
+                <div class="two-columns field-group"><label><span class="field-label">Tempo, BPM</span><input id="conversion-bpm" type="number" min="25" max="900" step="1" placeholder="Auto" /></label><label><span class="field-label">Analysis source</span><select id="source-mode"><option value="auto">Automatic</option><option value="full">Full mix / clean stem</option><option value="harmonic">Harmonic content</option></select></label></div>
+                <label class="field-group"><span class="field-label">Melody detail</span><select id="conversion-preset"><option value="faithful">Keep short notes &amp; rests</option><option value="balanced">Balanced</option><option value="smooth">Smoother, simpler line</option></select></label>
+                <p class="field-description">Start with a recognizable 6–12 second hook. Set the BPM if automatic rhythm sounds wrong. Harmonic filtering removes percussive content; it does not isolate vocals.</p>
+              </fieldset>
+              <button id="convert-button" class="generate-button" type="submit" disabled><span aria-hidden="true">♪</span><span id="convert-label">Convert excerpt</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+              <p id="conversion-status" class="conversion-status" role="status" aria-live="polite" hidden></p>
+              <div id="conversion-results" class="conversion-results" hidden></div>
+              <p class="model-footnote">Audio is sent only to the local studio server that serves this page. Your generator runs in the browser.</p>
+            </form>
+            <form id="composer-form" role="tabpanel" aria-labelledby="compose-tab">
               <fieldset id="composer-controls" class="controls-fieldset">
                 <legend class="sr-only">Melody settings</legend>
                 <div class="field-group">
@@ -94,7 +104,7 @@
           </section>
 
           <section class="listening-room" aria-labelledby="listening-heading">
-            <div class="room-heading"><div class="panel-heading"><span class="step-number">02</span><h2 id="listening-heading">Find your favorite.</h2></div><span id="library-count" class="library-count">THE LISTENING ROOM</span></div>
+            <div class="room-heading"><div class="panel-heading"><span class="step-number">02</span><h2 id="listening-heading">Find your favorite.</h2></div><span id="library-count" class="library-count">YOUR WORKSPACE</span></div>
             <div class="error-message" id="error-message" role="alert" hidden><span id="error-text"></span><button type="button" id="dismiss-error" aria-label="Dismiss error">×</button></div>
             <article class="player-card" id="player-card" aria-label="Melody player">
               <div class="player-heading"><div><p class="player-eyebrow" id="player-eyebrow"><span class="live-dot"></span> A LITTLE SOMETHING TO START</p><h3 id="now-playing-title">Hello, daydream.</h3><p class="now-playing-meta" id="now-playing-meta">Studio demo · 108 BPM · C major</p></div><div class="record-badge" aria-hidden="true"><span>♫</span></div></div>
@@ -104,15 +114,26 @@
               <p class="export-status" id="export-status" role="status" hidden></p>
             </article>
 
-            <div class="library" id="library"><div class="library-empty" id="library-empty"><div class="empty-note" aria-hidden="true">♪</div><div><h3>Good things come in little melodies.</h3><p>Pick a mood, make a batch, and meet your next earworm.<br />The demo above is ready to play while you explore.</p></div><span class="empty-arrow" aria-hidden="true">↖</span></div><ol class="song-list" id="song-list" aria-label="Your melodies"></ol></div>
+            <details class="score-editor" id="score-editor">
+              <summary><span>Edit the selected melody</span><span class="import-summary-hint">Keep the original · save a new version</span></summary>
+              <div class="score-editor-body">
+                <label class="field-label" for="score-input">RTTTL score</label><textarea id="score-input" rows="4" spellcheck="false"></textarea>
+                <div class="score-edit-actions"><button id="save-score" type="button" class="small-primary">Save edited copy</button><div class="transpose-actions" role="group" aria-label="Transpose a copy"><button id="transpose-down" type="button" class="small-primary" title="Transpose a copy down one semitone">−1 semitone</button><button id="transpose-up" type="button" class="small-primary" title="Transpose a copy up one semitone">+1 semitone</button></div></div>
+                <div class="score-tempo"><label for="score-bpm">Tempo, BPM</label><input id="score-bpm" type="number" min="25" max="900" step="1" /><button id="apply-score-tempo" type="button" class="small-primary">Save tempo copy</button></div>
+              </div>
+            </details>
+            <div class="continuation-bar"><div><strong>Where does this melody go next?</strong><p>Keep every selected note, then ask the transformer for a new phrase. The original stays in your workspace.</p></div><button id="continue-song" type="button" class="small-primary">Continue selected tune <span aria-hidden="true">↗</span></button></div>
+            <p id="continuation-hint" class="field-description">Uses the compose settings; melody length becomes additional notes. The selected tune’s tempo is preserved.</p>
+
+            <div class="library" id="library"><div class="library-empty" id="library-empty"><div class="empty-note" aria-hidden="true">♪</div><div><h3>Good things come in little melodies.</h3><p>Convert an excerpt, compose a batch, or import a tune.<br />The demo above is ready to play while you explore.</p></div><span class="empty-arrow" aria-hidden="true">↖</span></div><ol class="song-list" id="song-list" aria-label="Your melodies"></ol></div>
 
             <details class="import-panel"><summary><span><span aria-hidden="true">＋</span> Have an RTTTL tune already?</span><span class="import-summary-hint">Bring it to the studio ↗</span></summary><div class="import-body"><label class="field-label" for="rtttl-input">Paste your RTTTL</label><textarea id="rtttl-input" rows="3" spellcheck="false" placeholder="MyTune:d=8,o=5,b=120:c,e,g,4c6"></textarea><div class="import-actions"><label class="file-button" for="rtttl-file">Import .txt / .rtttl<input type="file" id="rtttl-file" accept=".txt,.rtttl,text/plain" /></label><button type="button" class="small-primary" id="load-rtttl">Load into player <span aria-hidden="true">↗</span></button></div><p class="field-description">One tune at a time. Your file stays in this browser.</p></div></details>
             <div class="studio-note"><span aria-hidden="true">✳</span><p><strong>Small format. Endless possibilities.</strong> RTTTL is a wonderfully tiny way to write a melody. These guides shape the notes and rhythm; choose a synth sound to give them a different feel.</p></div>
           </section>
         </div>
-        <section class="how-it-works" aria-label="How the studio works"><div><span>01 / COMPOSE</span><h3>Your browser is the studio.</h3><p>The melody model runs here with WebGPU, with a CPU fallback when needed. No sign-in, no generation server.</p></div><div><span>02 / MAKE IT YOURS</span><h3>A little direction goes a long way.</h3><p>Try a new tempo, a minor key, a brighter sound. Melody guides are handcrafted hints, ready for your experiment.</p></div><div><span>03 / KEEP IT</span><h3>Made to leave your pocket.</h3><p>Save the tiny RTTTL text or take the sound with you as WAV or MP3. Start something, share something, have fun.</p></div></section>
+        <section class="how-it-works" aria-label="How the studio works"><div><span>01 / CONVERT</span><h3>Find the recognizable phrase.</h3><p>The local Python engine follows a likely melody in your excerpt. Compare its interpretations with the original; dense arrangements may need an isolated stem.</p></div><div><span>02 / EDIT &amp; CONTINUE</span><h3>One shared workspace.</h3><p>Correct notes, change tempo, or transpose a copy. Continue the selected tune with the browser transformer. AI continuation creates new music; it does not verify the transcription.</p></div><div><span>03 / KEEP IT</span><h3>Take the melody with you.</h3><p>Download RTTTL, WAV, or MP3. The most recent 64 versions are saved in this browser when storage is available. Export important work before clearing browser data.</p></div></section>
       </main>
-      <footer class="site-footer"><span class="footer-brand">Pocket Composer <span aria-hidden="true">♫</span></span><p>Powered by <a href="https://huggingface.co/charlie88agent/rtttl-generative-transformer" target="_blank" rel="noopener noreferrer">RTTTL Generative Transformer</a>.<br />Player adapted from <a href="https://github.com/adamonsoon/rtttl-play" target="_blank" rel="noopener noreferrer">adamonsoon/rtttl-play</a> · <a href="./vendor/NOTICE.txt" target="_blank" rel="noopener noreferrer">licenses &amp; credits</a>.</p><span class="footer-signoff">A little less silence.<br /><em>A little more music.</em></span></footer>
+      <footer class="site-footer"><span class="footer-brand">RTTTL Studio <span aria-hidden="true">♫</span></span><p><a href="https://github.com/speccy88/mp3_to_rtttl" target="_blank" rel="noopener noreferrer">MP3 to RTTTL</a> + <a href="https://huggingface.co/charlie88agent/rtttl-generative-transformer" target="_blank" rel="noopener noreferrer">RTTTL Generative Transformer</a>.<br />Player adapted from <a href="https://github.com/adamonsoon/rtttl-play" target="_blank" rel="noopener noreferrer">adamonsoon/rtttl-play</a> · <a href="./vendor/NOTICE.txt" target="_blank" rel="noopener noreferrer">licenses &amp; credits</a>.</p><span class="footer-signoff">A little less silence.<br /><em>A little more music.</em></span></footer>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

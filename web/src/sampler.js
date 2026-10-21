@@ -1,10 +1,51 @@
 import { applyGuidance, createRng, planBatch } from './profiles.js';
+import { eventSeconds, MAX_AUDIO_SECONDS, MAX_EVENTS } from './rtttl.js';
 
 export const DEFAULT_OPTIONS = Object.freeze({
   numSongs: 4, profile: 'mixed', minEvents: 16, maxEvents: 48, temperature: .8,
   topK: 20, topP: .95, seed: 42, repetitionPenalty: 1.2, repetitionWindow: 16,
   maxPitchRun: 4, maxMotifRepeats: 3, maxMotifLength: 16,
 });
+
+const MODEL_DURATIONS = new Set([1, 2, 4, 8, 16, 32]);
+
+// A prompt is a parsed score, not raw tokens or an audio recording. Only its
+// musical fields enter the model; caller-owned events and cached seconds are
+// never mutated or trusted. Unsupported notes are rejected, never rounded.
+export function validatePromptSong(song) {
+  if (!song || typeof song !== 'object' || Array.isArray(song)) throw new Error('A continuation needs a parsed promptSong.');
+  if (!Number.isInteger(song.bpm) || song.bpm < 25 || song.bpm > 900) throw new Error('The source tempo must be an integer from 25 to 900 BPM.');
+  if (!Array.isArray(song.events) || !song.events.length || song.events.length >= MAX_EVENTS) {
+    throw new Error(`A continuation source must contain between 1 and ${MAX_EVENTS - 1} events.`);
+  }
+  const events = Array.from(song.events, (event, index) => {
+    if (!event || typeof event !== 'object' || Array.isArray(event)) throw new Error(`Invalid source event ${index + 1}.`);
+    if (event.pitch !== null && (!Number.isInteger(event.pitch) || event.pitch < 60 || event.pitch > 107)) {
+      throw new Error(`Source note ${index + 1} must be a rest or a MIDI pitch from 60 to 107 (C4–B7).`);
+    }
+    if (!MODEL_DURATIONS.has(event.duration)) {
+      throw new Error(`Source note ${index + 1}: the melody model supports durations 1, 2, 4, 8, 16 and 32; 64th notes cannot be continued without editing them first.`);
+    }
+    if (typeof event.dotted !== 'boolean') throw new Error(`Source note ${index + 1} must specify dotted as true or false.`);
+    return { pitch: event.pitch, duration: event.duration, dotted: event.dotted };
+  });
+  const durationSeconds = events.reduce((total, event) => total + eventSeconds(song.bpm, event.duration, event.dotted), 0);
+  if (durationSeconds >= MAX_AUDIO_SECONDS) throw new Error('The source already reaches the five-minute playback limit; select a shorter excerpt to continue.');
+  return { name: typeof song.name === 'string' ? song.name.slice(0, 256) : 'Source', bpm: song.bpm, events, durationSeconds };
+}
+
+function validateContinuationBudget(song, options) {
+  if (!Number.isInteger(options.minEvents) || !Number.isInteger(options.maxEvents)
+      || options.minEvents < 1 || options.maxEvents < options.minEvents || options.maxEvents > 256) {
+    throw new Error('A continuation must request between 1 and 256 additional events.');
+  }
+  if (song.events.length + options.maxEvents > MAX_EVENTS) {
+    throw new Error(`Source plus additional events must not exceed ${MAX_EVENTS}; select a shorter excerpt or fewer additional events.`);
+  }
+  if (song.durationSeconds + options.minEvents * eventSeconds(song.bpm, 32) > MAX_AUDIO_SECONDS) {
+    throw new Error('There is not enough time for the requested continuation within the five-minute playback limit.');
+  }
+}
 
 export function validateOptions(options = {}) {
   const value = { ...DEFAULT_OPTIONS, ...options };
@@ -20,7 +61,19 @@ export function validateOptions(options = {}) {
   if (!Number.isFinite(value.temperature) || value.temperature <= 0) throw new Error('Temperature must be finite and positive.');
   if (!Number.isFinite(value.topP) || value.topP <= 0 || value.topP > 1) throw new Error('topP must be greater than 0 and at most 1.');
   if (!Number.isFinite(value.repetitionPenalty) || value.repetitionPenalty < 1) throw new Error('Repetition penalty must be finite and at least 1.');
+  // Explicit continuation mode: min/maxEvents count NEW events. The source
+  // tempo is authoritative; controls intended for a new song cannot retime it.
+  if (value.promptSong !== undefined && value.promptSong !== null) {
+    value.promptSong = validatePromptSong(value.promptSong);
+    validateContinuationBudget(value.promptSong, value);
+    value.bpm = value.promptSong.bpm;
+    value.bpmRange = null;
+  }
   const plan = planBatch(value);
+  if (value.promptSong) for (const settings of plan) {
+    settings.tempoSource = 'prompt';
+    settings.continuation = true;
+  }
   return { options: value, plan };
 }
 
@@ -66,6 +119,17 @@ export class EventTokenizer {
     const count = (ids.length - 2) / 2;
     if (count >= maxEvents) return [this.eosId];
     return [...this.eventStartIds, ...(count >= minEvents ? [this.eosId] : [])];
+  }
+
+  encodePrefix(song) {
+    const source = validatePromptSong(song);
+    const ids = [this.bosId, this.tokenToId.get(`<BPM_${source.bpm}>`)];
+    for (const event of source.events) {
+      ids.push(event.pitch === null ? this.restId : this.tokenToId.get(`<PITCH_${event.pitch}>`),
+        this.tokenToId.get(`<DUR_${event.duration}_${event.dotted ? 'dot' : 'plain'}>`));
+    }
+    // No EOS: the next model decision extends the complete final source event.
+    return ids;
   }
 
   decode(ids, name = 'Melody') {
@@ -168,20 +232,44 @@ export class GenerationCancelled extends Error {
 
 export async function generateSong({ infer, tokenizer, options, settings, seed, contextLength = 256,
   name = 'Melody', isCancelled = () => false, onProgress = () => {} }) {
-  const ids = [tokenizer.bosId];
-  const history = [];
+  const prompt = options.promptSong === undefined || options.promptSong === null ? null : validatePromptSong(options.promptSong);
+  if (prompt) validateContinuationBudget(prompt, options);
+  const prefixEventCount = prompt?.events.length ?? 0;
+  const ids = prompt ? tokenizer.encodePrefix(prompt) : [tokenizer.bosId];
+  const history = prompt ? ids.slice(2).filter((_, index) => index % 2 === 0) : [];
+  const minimum = prefixEventCount + options.minEvents;
+  const maximum = prefixEventCount + options.maxEvents;
+  const effectiveSettings = prompt ? { ...settings, bpm: prompt.bpm, tempoSource: 'prompt', continuation: true } : settings;
   const interventions = { penalty_steps: 0, pitch_run_blocks: 0, motif_blocks: 0 };
   const rng = createRng(`${seed}:melody`);
   let forcedEos = false;
-  if (settings.bpm !== null) ids.push(tokenizer.tokenToId.get(`<BPM_${settings.bpm}>`));
+  let durationSeconds = prompt?.durationSeconds ?? 0;
+  if (!prompt && settings.bpm !== null) ids.push(tokenizer.tokenToId.get(`<BPM_${settings.bpm}>`));
   while (ids.at(-1) !== tokenizer.eosId) {
     if (isCancelled()) throw new GenerationCancelled();
-    let allowed = tokenizer.allowedNext(ids, options.minEvents, options.maxEvents);
+    let allowed = tokenizer.allowedNext(ids, minimum, maximum);
+    if (prompt) {
+      const completeEvents = Math.floor((ids.length - 2) / 2);
+      const shortest = eventSeconds(prompt.bpm, 32);
+      if ((ids.length - 2) % 2) {
+        // Leave enough duration for the minimum NEW event count, and never
+        // produce a continued score that the shared player cannot import.
+        const reserved = Math.max(0, minimum - completeEvents - 1) * shortest;
+        allowed = allowed.filter(id => {
+          const duration = tokenizer.durationById.get(id);
+          return durationSeconds + eventSeconds(prompt.bpm, duration.duration, duration.dotted) + reserved <= MAX_AUDIO_SECONDS;
+        });
+        if (!allowed.length) throw new Error('The continuation exceeded the five-minute playback limit.');
+      } else if (durationSeconds + shortest > MAX_AUDIO_SECONDS) {
+        if (completeEvents < minimum) throw new Error('The continuation cannot fit the requested minimum within the five-minute playback limit.');
+        allowed = [tokenizer.eosId];
+      }
+    }
     if (allowed.length === 1 && allowed[0] === tokenizer.eosId) { ids.push(tokenizer.eosId); forcedEos = true; break; }
     let logits = await infer(neuralContext(ids, contextLength));
     if (isCancelled()) throw new GenerationCancelled();
     if (logits.length !== tokenizer.vocabSize) throw new Error('The model output does not match its vocabulary.');
-    logits = applyGuidance(logits, allowed, history, tokenizer, settings);
+    logits = applyGuidance(logits, allowed, history, tokenizer, effectiveSettings);
     if (ids.length >= 2 && (ids.length - 2) % 2 === 0) {
       const filtered = repetitionFilter(logits, allowed, history, options);
       logits = filtered.logits; allowed = filtered.allowed;
@@ -190,11 +278,17 @@ export async function generateSong({ infer, tokenizer, options, settings, seed, 
     const next = sampleToken(logits, allowed, rng, options);
     ids.push(next);
     if (tokenizer.eventStartSet.has(next)) history.push(next);
-    onProgress({ tokenCount: ids.length, eventCount: Math.floor((ids.length - 2) / 2), maxEvents: options.maxEvents });
+    if (prompt && tokenizer.durationById.has(next)) {
+      const event = tokenizer.durationById.get(next);
+      durationSeconds += eventSeconds(prompt.bpm, event.duration, event.dotted);
+    }
+    onProgress({ tokenCount: ids.length, eventCount: Math.max(0, Math.floor((ids.length - 2) / 2) - prefixEventCount),
+      maxEvents: options.maxEvents, prefixEventCount });
     // WASM can resolve inference in the same task; give cancel messages time to
     // reach the worker even when no GPU await yields to the event loop.
     if (ids.length % 8 === 0) await new Promise(resolve => setTimeout(resolve, 0));
   }
   const song = tokenizer.decode(ids, name);
-  return { ...song, settings: { ...settings, bpm: song.bpm }, seed, forcedEos, interventions };
+  return { ...song, settings: { ...effectiveSettings, bpm: song.bpm }, seed, forcedEos, interventions,
+    continuation: Boolean(prompt), prefixEventCount, generatedEventCount: song.events.length - prefixEventCount };
 }

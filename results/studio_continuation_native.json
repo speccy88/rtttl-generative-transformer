@@ -1,0 +1,116 @@
+{
+  "status": "PASS",
+  "verification": "Real published ONNX weights, native ONNX Runtime CPU inference; no mocked logits.",
+  "scope": "Verifies checkpoint compatibility, genuine source conditioning, exact prefix preservation and seeded sampling on native CPU. Does not validate browser worker behavior, WebGPU, WASM, mobile devices, musical quality or audio transcription accuracy.",
+  "modelSha256": "2903d830ed8226466fa54e1520c74a162f1745bf92b3e70c29a85e6beb79f6ba",
+  "vocabularySha256": "0d294b28e14689544db7ab74f690e432f5dd02bb7dbcfc620b0f5937fe31252b",
+  "modelUrl": "https://huggingface.co/charlie88agent/rtttl-generative-transformer/resolve/6b703647b135f1e857bf6e77b1d751cd3c137b23/browser/model.onnx",
+  "runtime": {
+    "common": "1.30.0",
+    "node": "1.30.0"
+  },
+  "executionProvider": "cpu",
+  "initializationMs": 37,
+  "sourceRtttl": "Input:d=8,o=5,b=120:c,c,g,g,a,a,4g,p",
+  "sameSeedIdentical": true,
+  "changedSeedDifferent": true,
+  "runs": [
+    {
+      "seed": 42,
+      "inferenceCalls": 16,
+      "elapsedMs": 25,
+      "firstContext": [
+        1,
+        98,
+        891,
+        934,
+        891,
+        934,
+        898,
+        934,
+        898,
+        934,
+        900,
+        934,
+        900,
+        934,
+        898,
+        932,
+        927,
+        934
+      ],
+      "logitRange": [
+        -15.83154010772705,
+        7.507160663604736
+      ],
+      "prefixEventCount": 8,
+      "generatedEventCount": 8,
+      "rtttlSha256": "9a97fc85e93c2af5e6fae6b023cb9faebfce07679d0e9e9c41bd55cbb4bccb55"
+    },
+    {
+      "seed": 42,
+      "inferenceCalls": 16,
+      "elapsedMs": 20,
+      "firstContext": [
+        1,
+        98,
+        891,
+        934,
+        891,
+        934,
+        898,
+        934,
+        898,
+        934,
+        900,
+        934,
+        900,
+        934,
+        898,
+        932,
+        927,
+        934
+      ],
+      "logitRange": [
+        -15.83154010772705,
+        7.507160663604736
+      ],
+      "prefixEventCount": 8,
+      "generatedEventCount": 8,
+      "rtttlSha256": "9a97fc85e93c2af5e6fae6b023cb9faebfce07679d0e9e9c41bd55cbb4bccb55"
+    },
+    {
+      "seed": 43,
+      "inferenceCalls": 16,
+      "elapsedMs": 21,
+      "firstContext": [
+        1,
+        98,
+        891,
+        934,
+        891,
+        934,
+        898,
+        934,
+        898,
+        934,
+        900,
+        934,
+        900,
+        934,
+        898,
+        932,
+        927,
+        934
+      ],
+      "logitRange": [
+        -15.83154010772705,
+        7.507160663604736
+      ],
+      "prefixEventCount": 8,
+      "generatedEventCount": 8,
+      "rtttlSha256": "b085a058bd331be59b8f8f1e064c202c250d5739d47c7958bcbb3a642507c604"
+    }
+  ],
+  "outputPolicy": "Only output hashes are retained; generated model melodies are excluded from the public evidence."
+}

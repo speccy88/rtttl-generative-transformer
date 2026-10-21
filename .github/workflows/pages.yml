@@ -1,8 +1,12 @@
-name: Publish Pocket Composer
+name: Build and publish RTTTL Studio
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/pages.yml'
+  pull_request:
     paths:
       - 'web/**'
       - '.github/workflows/pages.yml'
@@ -11,7 +15,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: github-pages
+  group: github-pages-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'release' }}
   cancel-in-progress: false
 
 jobs:

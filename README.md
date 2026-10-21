@@ -2,13 +2,20 @@
 
 A small, real **decoder-only Transformer trained from random weights** to generate monophonic melodies in Ring Tone Text Transfer Language (RTTTL). Includes GRU and interpolated n-gram baselines, an audited parser, family-aware dataset splits, reproducible training, similarity checks, and WAV rendering. Melody generation uses no pretrained model or remote generation API. An optional, separate local language model can name completed melodies.
 
-**[Open Pocket Composer →](https://speccy88.github.io/rtttl-generative-transformer/)**
+**[Open RTTTL Studio →](https://speccy88.github.io/rtttl-generative-transformer/)**
 Make melodies directly in your browser with WebGPU or a local CPU fallback.
 Choose a melody guide, tempo, key and length; listen with the animated piano
 roll; and download RTTTL text, WAV or MP3. Optional automatic titles use a
 separate local model (about 140 MB), downloaded only after you enable naming.
 No installation, account or inference server is needed. See the
 [web app documentation](web/README.md) for development and deployment.
+
+For the complete **audio → RTTTL → edit → AI continuation** workflow, pair this
+browser app with [`mp3_to_rtttl`](https://github.com/speccy88/mp3_to_rtttl).
+Its `python rtttl_studio.py --build-web` command serves both engines through one
+local webpage. Existing notes and tempo are preserved when continuing a tune;
+edited and generated versions coexist in the workspace. See
+[the Studio architecture](docs/RTTTL_STUDIO.md).
 
 ## Public release scope
 
