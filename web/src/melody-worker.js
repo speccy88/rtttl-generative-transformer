@@ -144,7 +144,7 @@ async function createSession(bytes, backend, job) {
 
 async function initialize(manifestInput, backend, job) {
   if (!['auto', 'webgpu', 'wasm'].includes(backend)) throw new Error('Backend must be auto, webgpu, or wasm.');
-  if (!self.crypto?.subtle) throw new Error('Model verification requires HTTPS or localhost. Open the local studio at http://127.0.0.1:8765/ on your computer, or use an HTTPS site.');
+  if (!self.crypto?.subtle) throw new Error('Model verification requires a secure connection. Open the studio at its HTTPS GitHub Pages address.');
   if (isWebKitEngine()) {
     if (backend === 'webgpu') throw new Error(`${WEBKIT_CPU_REASON} Choose Automatic or CPU.`);
     if (backend === 'auto') {
@@ -205,10 +205,15 @@ async function initialize(manifestInput, backend, job) {
 
 async function perform(message, job) {
   const backend = message.options?.backend ?? message.backend ?? 'auto';
-  // generate + options.promptSong opts in to continuation. promptSong is the
+  // generate + options.promptSong normally opts in to continuation. promptSong is the
   // parsed {name, bpm, events:[{pitch, duration, dotted}]} score. Its events and
   // tempo are retained; minEvents/maxEvents bound additional model events.
   // Returned songs include continuation, prefixEventCount and generatedEventCount.
+  // Adding editMode:'variation'|'repair' instead edits selection:{start,end}
+  // (zero-based, half-open, max16 events). editStrength is low/medium/high or
+  // a number in (0,1]. Edits preserve source rhythm/rests/tempo/event count.
+  // Repair ranks the original and up to4 alternatives using forward likelihood
+  // through up to8 known suffix events; originalChosen may legitimately be true.
   // Validate before any network request, model allocation, or GPU work.
   const validated = message.type === 'generate' ? validateOptions(message.options) : null;
   let runtime = await initialize(message.modelManifest, backend, job);
@@ -233,11 +238,13 @@ async function perform(message, job) {
   };
   for (let index = 0; index < plan.length; index++) {
     if (job.cancelled) throw new GenerationCancelled();
-    status(job.id, `${options.promptSong ? 'Continuing' : 'Composing'} melody ${index + 1} of ${plan.length}…`, { phase: 'generate', backend: runtime.backend });
+    const action = options.editMode === 'variation' ? 'Varying selected notes in'
+      : options.editMode === 'repair' ? 'Scoring repair suggestions for' : options.promptSong ? 'Continuing' : 'Composing';
+    status(job.id, `${action} melody ${index + 1} of ${plan.length}…`, { phase: 'generate', backend: runtime.backend });
     const song = await generateSong({
       infer, tokenizer: runtime.tokenizer, options, settings: plan[index],
       seed: options.seed + index, contextLength: runtime.manifest.contextLength,
-      name: `Melody${String(index + 1).padStart(2, '0')}`,
+      name: `${options.editMode === 'variation' ? 'Variation' : options.editMode === 'repair' ? 'Repair' : 'Melody'}${String(index + 1).padStart(2, '0')}`,
       isCancelled: () => job.cancelled,
       onProgress: progress => send('progress', job.id, { ...progress, songIndex: index, numSongs: plan.length, backend: runtime.backend }),
     });

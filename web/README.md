@@ -1,55 +1,51 @@
 # RTTTL Studio
 
-The browser app now combines **audio conversion, score editing, composition,
-continuation and exports** in one workspace. It is the shared front end for this
-repository and [`speccy88/mp3_to_rtttl`](https://github.com/speccy88/mp3_to_rtttl).
+**[Open the complete studio on GitHub Pages](https://speccy88.github.io/rtttl-generative-transformer/)**
 
-## Complete local studio
+Convert supported audio files to RTTTL, select a melody, edit notes, generate
+variations or repair suggestions, compose new music, and export from one webpage.
+All inference runs on the visitor's device. No local server, Python installation,
+account or inference API is required.
 
-Keep both repositories beside one another and use their matching feature branches
-until merged. Install the converter's existing Python 3.11 requirements, then run
-`npm ci` in this `web/` directory. From `mp3_to_rtttl`, run:
+## Browser workflow
 
-```sh
-python rtttl_studio.py --build-web
-```
+**Convert audio** accepts local MP3, WAV, FLAC, M4A, OGG, AAC, Opus and WebM files
+when the browser supports their codec. Files are limited to 32 MiB, source length to 10 minutes and
+selected excerpts to 0.25–30 seconds. Short clips are recommended for decode memory
+and responsiveness. Use the waveform or numeric fields to select an excerpt, listen
+to it, enter known BPM if available, and choose a lead preference/rhythm grid.
 
-Open **http://127.0.0.1:8765/**. One origin serves the browser UI and local audio
-conversion API; the transformer continues to run in this browser. The build flag
-sets `VITE_BASE_PATH=/` across platforms. After building, omit the flag for faster
-startup. If `npm ci` fails downloading optional native ONNX components from NuGet,
-`npm ci --ignore-scripts` is a tested browser-build fallback.
+The bundled Spotify Basic Pitch model runs in a dedicated single-thread WASM worker.
+The browser compares several melody interpretations from the same inference. Lead
+preference changes decoding; it is not vocal/instrument stem separation. Candidate
+percentages describe agreement with model evidence, not recognition accuracy.
 
-See the converter's [START_HERE guide](https://github.com/speccy88/mp3_to_rtttl/blob/feat/rtttl-studio/START_HERE.md)
-and [API contract](https://github.com/speccy88/mp3_to_rtttl/blob/feat/rtttl-studio/docs/STUDIO_API.md).
+**Select and edit** notes directly in the piano roll. Shift-select a phrase, or use
+numeric selection boundaries. Manual edits and model proposals create new versions;
+the original remains available. The latest 64 scores persist in this browser.
 
-**Convert audio** accepts a local file up to 32 MiB and an excerpt of 0.25–30 seconds.
-Preview the original, optionally set its BPM, compare the returned interpretations,
-and select one in the common workspace. Source-evidence percentages are not
-transcription accuracy. The Python process removes temporary uploads after success
-or failure; the browser does not persist the original audio file.
+**Vary selection** changes selected pitches while locking rhythm, rests, tempo,
+event count and unselected notes. **Repair suggestions** compares bounded alternatives
+against the original using forward model likelihood across the selection and up to
+eight following events. It may retain the original. This is approximate causal
+candidate search, not BERT-trained masked reconstruction or verified audio correction.
+Selections are limited to 16 events and edit batches to four alternatives.
 
-**Edit the selected melody** saves RTTTL edits, semitone transposition or tempo
-changes as separate versions. **Continue selected tune** feeds the selected score's
-notes/rests/rhythm to the actual model and preserves its tempo. The length control
-means additional events during continuation. Original and new scores coexist, up
-to the existing 64-score storage limit.
+**Compose** retains the existing style, key, tempo and sampling controls. **Continue
+selected tune** feeds the score's real token prefix to the transformer and appends
+new events; its length control counts additional events. Imported 64th notes can
+play, but model operations explicitly reject unsupported 64th-note rhythms.
 
-The model supports durations through 32nds. Imported 64th notes remain playable,
-but continuation rejects them explicitly. Continuation creates new music and is
-never applied automatically to make a transcription appear more accurate.
+**Export** RTTTL text, WAV or MP3 from the same selected score. Source audio remains
+in browser memory for the session and is never posted to a backend. Export important
+scores before clearing browser data.
 
-The static GitHub Pages app supports composition, continuation, editing and export
-without the converter. It shows local setup instructions for audio conversion;
-GitHub Pages cannot execute the Python transcription pipeline.
+See [the feature specification](../docs/RTTTL_STUDIO.md) for behavior, acceptance
+criteria, architecture and the distinction between variations, repair and continuation.
+The Python [mp3_to_rtttl](https://github.com/speccy88/mp3_to_rtttl) project remains an
+independent desktop/CLI tool and decoding reference, not a runtime dependency.
 
-## Standalone browser composer
-
-A browser music studio for the [RTTTL Generative Transformer](https://huggingface.co/charlie88agent/rtttl-generative-transformer): make melodies, listen with a moving piano roll, optionally name them, and download RTTTL text, WAV, or MP3.
-
-**Site:** [speccy88.github.io/rtttl-generative-transformer](https://speccy88.github.io/rtttl-generative-transformer/)
-
-## Run locally
+## Development only
 
 Use Node.js 22.12 or newer on the Node 22 release line, and npm. These commands run from `web/`:
 
@@ -68,8 +64,11 @@ npm run preview
 
 For production UI checks, install Playwright's browser once with
 `npx playwright install chromium firefox webkit`, then run `npm run test:e2e` after building.
-The ordinary suite blocks external downloads. To explicitly test the real
-melody model and your available GPU, use
+The mandatory browser inference tests use the actual bundled Basic Pitch model
+in Chromium, Firefox and WebKit. An MP3-to-variation-to-repair check downloads the
+pinned generator files, verifies their hashes, then runs them in a real browser
+worker. Separate UI and cache fixtures use mocks or block external downloads.
+To explicitly test the real melody model and your available GPU, use
 `PLAYWRIGHT_REAL_MODEL=1 npm run test:e2e -- --grep 'optional real'`.
 
 The cache regression suite checks Chromium, Firefox and WebKit using normal
@@ -100,7 +99,7 @@ Website storage is still managed by the browser: clearing site data, private bro
 
 The [mobile repair validation record](../results/mobile_browser_fix_validation.json) covers multi-song naming, library recovery, chunked persistence and real inference with model networking blocked after reload in Chromium, Firefox and WebKit. The [earlier cache validation](../results/browser_cache_validation.json) describes the previous implementation. WebKit runs at a mobile viewport; this does not replace testing on a physical iPhone.
 
-Each visitor downloads and runs generation models on their own device. This static app has no hosted inference endpoint, API key, account requirement, or analytics code. Generated notes, imported RTTTL and title prompts are processed in the browser rather than uploaded for inference. In the complete local studio, selected audio files are sent to the same-origin Python process for transcription. GitHub Pages and Hugging Face receive the ordinary requests needed to serve the site, runtime and model files.
+Each visitor downloads and runs generation models on their own device. This static app has no hosted inference endpoint, API key, account requirement, or analytics code. Generated notes, imported RTTTL and title prompts are processed in the browser rather than uploaded for inference. Selected audio is decoded and transcribed in the browser; no audio or score content is uploaded. GitHub Pages and Hugging Face receive the ordinary requests needed to serve the site, runtime and model files.
 
 WAV and MP3 are synthesized locally from the same score and selected waveform. MP3 loads its small encoder only on export. Exports are mono, 44.1 kHz; MP3 uses 128 kbps and can contain encoder padding. Audio is limited to five minutes per song.
 
@@ -108,7 +107,18 @@ The latest library (up to 64 scores) and completed titles are saved on the devic
 
 ## Model versions
 
-### Verify continuation against actual weights
+### Verify browser transcription quality
+
+`node scripts/verify-browser-transcription.mjs --asyncify` runs the actual bundled
+Basic Pitch model through ONNX Runtime Web/WASM on six generated audio fixtures.
+It evaluates pitches, onsets, rests and elapsed timing using known BPM and no time
+stretching. The aggregate record is
+[`../results/studio_browser_transcription_native.json`](../results/studio_browser_transcription_native.json).
+This Node-hosted check exercises the browser conversion algorithm, while the
+mandatory browser tests separately cover decoding, workers and the static site.
+Synthetic fixture results do not establish accuracy on arbitrary songs.
+
+### Verify continuation and selected edits against actual weights
 
 The optional `scripts/verify-continuation.mjs` check uses native ONNX Runtime CPU
 inference with the same immutable published checkpoint. Supply a directory
@@ -118,11 +128,14 @@ containing `model.onnx` and `tokenizer.json` from the manifest's pinned URLs:
 node scripts/verify-continuation.mjs /path/to/model-files /path/to/result.json
 ```
 
-It verifies hashes before running and never downloads files itself. It checks that
-the first model input contains the source score, the original events/BPM are
-unchanged, extra events use actual inference, and the same seed reproduces output.
-Recorded evidence is in `../results/studio_continuation_native.json`. This native
-check does not establish browser WebGPU/WASM or physical iPhone compatibility.
+It verifies hashes before running and never downloads files itself. It checks
+source-conditioned continuation, selected-pitch variations, and repair scoring
+against the original baseline and known suffix. Exact rhythm, rests, tempo and
+unselected events are checked, along with seeded reproducibility. Recorded
+evidence is in [`../results/studio_edits_native.json`](../results/studio_edits_native.json);
+the earlier continuation-only result remains available separately. This native
+check does not establish browser WebGPU/WASM compatibility, musical quality or
+audio recognition accuracy. Browser evidence is recorded by the Pages workflow.
 
 ### Pinned downloads
 

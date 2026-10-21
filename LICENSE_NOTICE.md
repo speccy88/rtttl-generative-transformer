@@ -22,4 +22,11 @@ the melody Transformer remains the project's own trained model.
 
 The original RTTTL corpus was supplied for the experiment, but its source provenance and redistribution rights were not established. Therefore this public release excludes the corpus, processed song records, original manifests and title inventories, trained model weights, and generated melodies/audio. No license is asserted for those materials, and the software must not be used as evidence that any particular melody is cleared for redistribution.
 
+The separately licensed Spotify Basic Pitch transcription model is an explicit
+exception to the weight exclusion above. Its small, unmodified ONNX asset ships
+under `web/public/transcription/` so audio conversion can run on GitHub Pages.
+That directory includes the Apache-2.0 license, Spotify notice and provenance;
+the exception does not include this project's melody training checkpoints,
+datasets, user recordings or generated music.
+
 The public demonstration creates artificial examples locally from code. It does not download or reproduce the withheld corpus. Use only datasets, checkpoints, and outputs for which you have the necessary rights.

@@ -1,0 +1,142 @@
+{
+  "verified_at": "2026-10-21T00:48:45.856Z",
+  "execution": "Real onnxruntime-web CPU/WASM in Node; no browser audio decode or UI exercised.",
+  "runtime": "asyncify",
+  "node": "v24.19.0",
+  "ort": "1.30.0",
+  "model": {
+    "path": "web/public/transcription/basic-pitch.onnx",
+    "bytes": 230444,
+    "sha256": "2c3c1d144bfa61ad236e92e169c13535c880469a12a047d4e73451f2c059a0ec",
+    "upstream": "Spotify basic-pitch 0.4.0 saved_models/icassp_2022/nmp.onnx"
+  },
+  "source_sha256": {
+    "src/transcription-core.js": "1fce2a8aa2f8698c2bb2264da14ed5f5dfcefb691053a9cf259f1557105043e7",
+    "scripts/verify-browser-transcription.mjs": "1f07cd6f067db5d90f955c76019b01bc6fcb76c27ac1af8392ea5a2adcc5f3b9"
+  },
+  "duration_ms": 2535,
+  "metric": {
+    "formula": "0.35 * pitch-class accuracy + 0.35 * octave-adjusted MIDI accuracy + 0.30 * onset F1",
+    "grid": 16,
+    "onset_tolerance_steps": 1,
+    "rests_counted": true,
+    "octave_adjustment": "single global octave shift; no timing stretching",
+    "selection": "first candidate, sorted by model evidence only"
+  },
+  "results": [
+    {
+      "fixture": "repeated_intervals",
+      "duration_seconds": 8,
+      "detected_events": 28,
+      "candidates": [
+        {
+          "name": "Faithful melody",
+          "evidence_score": 0.7603444324200275,
+          "pitch_class_accuracy": 1,
+          "octave_adjusted_midi_accuracy": 1,
+          "onset_f1": 0.9629629629629629,
+          "combined": 0.9888888888888888,
+          "expected_tokens": 14,
+          "actual_tokens": 15,
+          "rtttl_sha256": "ffefe7fe734fe413ea9a3de1ad43e3936a896bcbbf7bbd0cf3c36e70d10aff65"
+        }
+      ]
+    },
+    {
+      "fixture": "scale",
+      "duration_seconds": 5.1,
+      "detected_events": 15,
+      "candidates": [
+        {
+          "name": "Faithful melody",
+          "evidence_score": 0.8174302234117443,
+          "pitch_class_accuracy": 1,
+          "octave_adjusted_midi_accuracy": 1,
+          "onset_f1": 1,
+          "combined": 1,
+          "expected_tokens": 15,
+          "actual_tokens": 15,
+          "rtttl_sha256": "3ccf15d0f5b15d12cd4f00562f9199f286957c38320633b2b4107c9c9ee21a0f"
+        }
+      ]
+    },
+    {
+      "fixture": "leaps",
+      "duration_seconds": 5.454240362811792,
+      "detected_events": 25,
+      "candidates": [
+        {
+          "name": "Faithful melody",
+          "evidence_score": 0.7840171762373248,
+          "pitch_class_accuracy": 1,
+          "octave_adjusted_midi_accuracy": 1,
+          "onset_f1": 1,
+          "combined": 1,
+          "expected_tokens": 13,
+          "actual_tokens": 13,
+          "rtttl_sha256": "d162582233e5727407e7328eb2ebbbf0929f00f0ba79e3d7bae990fdef01c937"
+        }
+      ]
+    },
+    {
+      "fixture": "short_notes_and_rests",
+      "duration_seconds": 3.6666666666666665,
+      "detected_events": 10,
+      "candidates": [
+        {
+          "name": "Faithful melody",
+          "evidence_score": 0.8215458103083453,
+          "pitch_class_accuracy": 1,
+          "octave_adjusted_midi_accuracy": 1,
+          "onset_f1": 1,
+          "combined": 1,
+          "expected_tokens": 11,
+          "actual_tokens": 11,
+          "rtttl_sha256": "3f1fed1a587b81eaa15dad49eafe8b3a49c754ff2364a2f4f3df7e835a7fca64"
+        }
+      ]
+    },
+    {
+      "fixture": "short_passing_notes",
+      "duration_seconds": 3.3333333333333335,
+      "detected_events": 10,
+      "candidates": [
+        {
+          "name": "Faithful melody",
+          "evidence_score": 0.8084074126703985,
+          "pitch_class_accuracy": 1,
+          "octave_adjusted_midi_accuracy": 1,
+          "onset_f1": 1,
+          "combined": 1,
+          "expected_tokens": 9,
+          "actual_tokens": 9,
+          "rtttl_sha256": "4f45dbf7c8be23d34dd99136b7710e739da84629ebfa06a8084bb71a7d3d98b8"
+        }
+      ]
+    },
+    {
+      "fixture": "gated_repeated_notes",
+      "duration_seconds": 3.3333333333333335,
+      "detected_events": 9,
+      "candidates": [
+        {
+          "name": "Faithful melody",
+          "evidence_score": 0.827863543814626,
+          "pitch_class_accuracy": 1,
+          "octave_adjusted_midi_accuracy": 1,
+          "onset_f1": 1,
+          "combined": 1,
+          "expected_tokens": 9,
+          "actual_tokens": 9,
+          "rtttl_sha256": "67a7589483da5e0726bc6472e86a78dd8fa1ae258c8e71fe0dd7d860e412333f"
+        }
+      ]
+    }
+  ],
+  "selected_mean": 0.9981481481481481,
+  "limits": [
+    "Known BPM is supplied. These deterministic harmonic tones do not measure recognition accuracy on arbitrary full-mix songs.",
+    "Source decoding, MP3 codec behavior, caching, worker cancellation and browser compatibility require the browser integration test.",
+    "Browser lead selection is an independently tested JavaScript implementation; no claim of byte-identical Python output."
+  ]
+}

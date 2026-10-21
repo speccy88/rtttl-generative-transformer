@@ -3,8 +3,8 @@ import { parseRtttl } from './rtttl.js';
 import { createPlayer, renderWav, renderMp3 } from './audio.js';
 import { primeBrowserCache, connectWorkerCache } from './model-cache.js';
 import { isWebKitEngine, WEBKIT_CPU_REASON } from './browser-policy.js';
-import { checkConverter, MAX_UPLOAD_BYTES, transcriptionParameters, transcribeAudio } from './converter-client.js';
-import { appendStudioSongs, changeScoreTempo, transposeScore } from './studio-score.js';
+import { inspectAudio, transcribeInBrowser } from './audio-transcriber.js';
+import { appendStudioSongs, changeScoreTempo, editScoreSelection, transposeScore, validScoreSelection } from './studio-score.js';
 import { validateOptions } from './sampler.js';
 
 const browserCacheReady = primeBrowserCache().catch(() => {});
@@ -36,11 +36,14 @@ const state = {
   leavingDuringGeneration: false,
   usedTitles: [], usedNames: [],
   disposeTitleWorker: null,
-  converterReady: false, converting: false, conversionController: null, conversionSource: null,
-  sourceUrl: null, sourceDuration: null, excerptPlaying: false, continuationSource: null,
+  audioReady: false, inspecting: false, converting: false, conversionController: null, inspectController: null, conversionSource: null,
+  sourceUrl: null, sourceDuration: null, sourcePeaks: [], excerptPlaying: false, waveformDrag: null,
+  continuationSource: null, generationMode: null, generationSelection: null,
+  selection: null, selectionAnchor: null, focusedEvent: 0, comparison: null,
 };
 const LIBRARY_STORAGE_KEY = 'pocket-composer-library-v1';
 const MAX_SAVED_SONGS = 64;
+const MAX_AUDIO_FILE_BYTES = 32 * 1024 * 1024;
 
 function saveLibrary() {
   // Save completed scores before the optional, larger title model starts. Mobile
@@ -50,6 +53,10 @@ function saveLibrary() {
     source: song.source, settings: song.settings || song.generation_settings,
     naming: song.naming, namingPending: Boolean(song.namingPending), seed: song.seed,
     parentId: song.parentId, prefixEventCount: song.prefixEventCount,
+    selectedRange: song.selectedRange, selection: song.selection, editMode: song.editMode,
+    changedEventCount: song.changedEventCount, originalChosen: song.originalChosen,
+    editStrength: song.editStrength, repairMethod: song.repairMethod, scoreDetails: song.scoreDetails,
+    inferenceCalls: song.inferenceCalls, maxChangedEvents: song.maxChangedEvents, maxPitchDistance: song.maxPitchDistance,
   }));
   try {
     localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify({ version: 1, songs,
@@ -105,7 +112,7 @@ function clearError() { $('#error-message').hidden = true; }
 function songDescription(song, includeDuration = false) {
   const parsed = song === state.currentSong ? state.parsedSong : parseRtttl(song.rtttl);
   const settings = song.settings || song.generation_settings || {};
-  const source = ({ demo: 'Studio demo', import: 'Your RTTTL', converted: 'Audio conversion', edited: 'Edited copy', continuation: 'AI continuation' })[song.source] || PROFILE_LABELS[settings.profile || 'none'] || 'Melody';
+  const source = ({ demo: 'Studio demo', import: 'Your RTTTL', converted: 'Audio conversion', edited: 'Edited copy', continuation: 'AI continuation', variation: 'AI variation', repair: 'Repair suggestion' })[song.source] || PROFILE_LABELS[settings.profile || 'none'] || 'Melody';
   const key = settings.tonic && settings.mode ? `${settings.tonic} ${settings.mode === 'natural-minor' ? 'minor' : settings.mode}` : null;
   const original = song.source === 'converted' && settings.conversion?.filename ? settings.conversion.filename : null;
   return [source, `${parsed.bpm} BPM`, key, original, includeDuration ? formatTime(parsed.durationSeconds) : null].filter(Boolean).join(' · ');
@@ -161,34 +168,110 @@ function drawNotes(song) {
   let elapsed = 0;
   const fragment = document.createDocumentFragment();
   song.events.forEach((event, index) => {
-    if (event.pitch !== null) {
-      const note = document.createElement('span');
-      note.className = 'roll-note';
-      note.dataset.note = String(index);
-      note.style.left = `${elapsed / song.durationSeconds * 100}%`;
-      note.style.width = `${Math.max(0.25, event.seconds / song.durationSeconds * 100 * 0.9)}%`;
-      note.style.top = `${(upper - event.pitch) / (upper - lower) * 85}%`;
-      fragment.appendChild(note);
-    }
+    const note = document.createElement('button');
+    note.type = 'button';
+    note.className = `roll-event ${event.pitch === null ? 'roll-rest' : 'roll-note'}`;
+    note.dataset.note = String(index);
+    note.style.left = `${elapsed / song.durationSeconds * 100}%`;
+    note.style.width = `${Math.max(0.25, event.seconds / song.durationSeconds * 100 * 0.9)}%`;
+    note.style.top = event.pitch === null ? '88%' : `${(upper - event.pitch) / (upper - lower) * 72}%`;
+    const pitch = event.pitch === null ? 'rest' : `${['C', 'C sharp', 'D', 'D sharp', 'E', 'F', 'F sharp', 'G', 'G sharp', 'A', 'A sharp', 'B'][event.pitch % 12]}${Math.floor(event.pitch / 12) - 1}`;
+    note.setAttribute('aria-label', `Event ${index + 1}: ${pitch}, ${event.dotted ? 'dotted ' : ''}1/${event.duration} note`);
+    note.title = note.getAttribute('aria-label');
+    note.tabIndex = index === state.focusedEvent ? 0 : -1;
+    fragment.appendChild(note);
     elapsed += event.seconds;
   });
   $('#roll-notes').replaceChildren(fragment);
 }
 
-function selectSong(song) {
+function updateNoteSelection() {
+  const selection = validScoreSelection(state.selection, state.parsedSong.events.length) ? state.selection : null;
+  const selectedEvents = selection ? state.parsedSong.events.slice(selection.start, selection.end) : [];
+  const pitches = selectedEvents.filter(event => event.pitch !== null).length;
+  for (const button of $$('#roll-notes [data-note]')) {
+    const index = Number(button.dataset.note);
+    const selected = Boolean(selection && index >= selection.start && index < selection.end);
+    button.setAttribute('aria-pressed', String(selected));
+    button.classList.toggle('is-selected', selected);
+    button.classList.toggle('is-outside-selection', Boolean(selection && !selected));
+    button.tabIndex = index === state.focusedEvent ? 0 : -1;
+  }
+  $('#selection-start').max = $('#selection-end').max = String(state.parsedSong.events.length);
+  $('#selection-start').value = selection ? String(selection.start + 1) : '';
+  $('#selection-end').value = selection ? String(selection.end) : '';
+  $('#selection-summary').textContent = selection
+    ? `${selection.start === selection.end - 1 ? `Event ${selection.end}` : `Events ${selection.start + 1}–${selection.end}`} · ${pitches} ${pitches === 1 ? 'note' : 'notes'}${selectedEvents.length - pitches ? `, ${selectedEvents.length - pitches} rest${selectedEvents.length - pitches === 1 ? '' : 's'}` : ''}`
+    : 'No notes selected';
+  if (selectedEvents.length) {
+    $('#selected-duration').value = String(selectedEvents[0].duration);
+    $('#selected-dotted').checked = selectedEvents[0].dotted;
+  }
+  $('#phrase-hint').textContent = selectedEvents.length > 16
+    ? `${selectedEvents.length} events selected. Choose a phrase of at most 16 events for variation or repair; manual edits can use the full range.`
+    : selection && pitches === 0
+      ? 'This range contains only rests. Include at least one pitched note for variation or repair.'
+      : 'Select 1–16 events, including at least one note. Variations keep the rhythm, rests, and tempo; everything outside the selection is locked.';
+  updateStudioButtons();
+}
+
+function selectNoteRange(anchor, focus, { save = true } = {}) {
+  const last = state.parsedSong.events.length - 1;
+  anchor = Math.max(0, Math.min(last, anchor));
+  focus = Math.max(0, Math.min(last, focus));
+  state.selectionAnchor = anchor;
+  state.focusedEvent = focus;
+  state.selection = { start: Math.min(anchor, focus), end: Math.max(anchor, focus) + 1 };
+  state.currentSong.selectedRange = { ...state.selection };
+  updateNoteSelection();
+  if (save) saveLibrary();
+}
+
+function clearNoteSelection() {
+  state.selection = null; state.selectionAnchor = null;
+  state.currentSong.selectedRange = null;
+  updateNoteSelection(); saveLibrary();
+}
+
+function updateVersionComparison() {
+  const comparison = state.comparison;
+  const parent = comparison && state.songs.find(song => String(song.id) === String(comparison.parentId));
+  const version = comparison && state.songs.find(song => String(song.id) === String(comparison.versionId));
+  $('#version-comparison').hidden = !parent || !version;
+  if (parent && version) {
+    $('#version-label').textContent = `Compare with ${displayTitle(parent)}`;
+    $('#compare-parent').setAttribute('aria-pressed', String(state.currentSong.id === parent.id));
+    $('#compare-version').setAttribute('aria-pressed', String(state.currentSong.id === version.id));
+  }
+  const song = state.currentSong;
+  $('#edit-result-note').hidden = !['repair', 'variation'].includes(song.source);
+  $('#edit-result-note').textContent = song.source === 'repair' && song.originalChosen
+    ? 'Original scored best; no change suggested. Compare it with your recording before making an edit.'
+    : song.source === 'repair'
+      ? `${song.changedEventCount ?? 'Selected'} pitch${song.changedEventCount === 1 ? '' : 'es'} changed in this repair suggestion. The score reflects melody plausibility; listen and compare.`
+      : `${song.changedEventCount ?? 'Selected'} pitch${song.changedEventCount === 1 ? '' : 'es'} varied. Rhythm, rests, tempo, and unselected events are kept.`;
+}
+
+function selectSong(song, { preserveComparison = false } = {}) {
   const parsed = parseRtttl(song.rtttl);
   stopPlayback();
   state.currentSong = song;
   state.parsedSong = parsed;
+  const savedRange = song.selectedRange === null ? null : song.selectedRange || song.selection;
+  state.selection = validScoreSelection(savedRange, parsed.events.length) ? { ...savedRange } : null;
+  state.selectionAnchor = state.selection?.start ?? null; state.focusedEvent = state.selection?.start ?? 0;
+  if (!preserveComparison) state.comparison = song.parentId ? { parentId: song.parentId, versionId: song.id, selection: state.selection } : null;
   $('#now-playing-title').textContent = displayTitle(song);
   $('#now-playing-meta').textContent = songDescription(song);
-  const eyebrow = ({ demo: 'A LITTLE SOMETHING TO START', import: 'YOUR TUNE, RIGHT AT HOME', converted: 'FROM YOUR AUDIO EXCERPT', edited: 'YOUR EDITED VERSION', continuation: 'YOUR MELODY, CONTINUED' })[song.source] || 'FRESH FROM YOUR BROWSER';
+  const eyebrow = ({ demo: 'A LITTLE SOMETHING TO START', import: 'YOUR TUNE, RIGHT AT HOME', converted: 'FROM YOUR AUDIO EXCERPT', edited: 'YOUR EDITED VERSION', continuation: 'YOUR MELODY, CONTINUED', variation: 'A VARIATION ON YOUR PHRASE', repair: 'A REPAIR SUGGESTION TO COMPARE' })[song.source] || 'FRESH FROM YOUR BROWSER';
   $('#player-eyebrow').innerHTML = `<span class="live-dot"></span>${eyebrow}`;
   $('#duration-time').textContent = formatTime(parsed.durationSeconds);
   $('#piano-roll').setAttribute('aria-label', `${parsed.events.length} events across ${formatTime(parsed.durationSeconds)}. Higher bars represent higher notes.`);
   $('#previous-song').disabled = state.songs.length < 2;
   $('#next-song').disabled = state.songs.length < 2;
   drawNotes(parsed);
+  updateNoteSelection();
+  updateVersionComparison();
   $('#score-input').value = song.rtttl;
   $('#score-bpm').value = String(parsed.bpm);
   for (const row of $$('.song-row')) {
@@ -390,7 +473,10 @@ function receiveSong(song) {
     stopPlayback();
   }
   if (state.continuationSource) retainSourceVersion(state.continuationSource);
-  const record = { ...song, id: song.id ?? `${state.jobId}-${state.incomingSongs.length}`, source: state.continuationSource ? 'continuation' : 'generated', parentId: state.continuationSource?.id, namingPending: state.namingRequested };
+  const record = { ...song, id: song.id ?? `${state.jobId}-${state.incomingSongs.length}`,
+    source: state.continuationSource ? state.generationMode : 'generated', parentId: state.continuationSource?.id,
+    selectedRange: state.generationSelection ? { ...state.generationSelection } : undefined,
+    namingPending: state.namingRequested };
   state.incomingSongs.push(record);
   state.songs = appendStudioSongs(state.songs, [record], MAX_SAVED_SONGS);
   if (state.incomingSongs.length === 1) selectSong(record);
@@ -492,7 +578,10 @@ function getWorker() {
         if (!state.cancelled) {
           const songIndex = Math.min((data.songIndex ?? 0) + 1, data.numSongs || 1);
           const progress = ((data.songIndex ?? 0) + Math.min(1, (data.eventCount ?? 0) / (data.maxEvents || 48))) / (data.numSongs || 1) * 100;
-          setProgress(`Composing melody ${songIndex} of ${data.numSongs}…`, progress);
+          const action = state.generationMode === 'repair' ? 'Comparing repair suggestion' : state.generationMode === 'variation' ? 'Varying phrase' : 'Composing melody';
+          const detail = state.generationMode === 'repair' && Number.isInteger(data.candidateIndex)
+            ? ` · ${data.editPhase === 'score' ? 'scoring' : 'sampling'} candidate ${data.candidateIndex + 1} of ${data.candidateCount || 5}` : '';
+          setProgress(`${action} ${songIndex} of ${data.numSongs}${detail}…`, state.generationMode === 'repair' ? null : progress);
         }
       } else if (data.type === 'song' && !state.finishing) receiveSong(data.song);
       else if (data.type === 'done') void finishGeneration(data).catch(error => { showError(error); setBusy(false); });
@@ -518,9 +607,10 @@ function getWorker() {
   return worker;
 }
 
-async function generate(event, promptSong = null) {
+async function generate(event, action = {}) {
   event?.preventDefault();
-  if (state.busy || state.converting) return;
+  if (state.busy || state.converting || state.inspecting) return;
+  const { promptSong = null, editMode = null, selection = null } = action;
   clearError();
   if (!$('#keep-seed').checked) shuffleSeed();
   let options;
@@ -531,16 +621,28 @@ async function generate(event, promptSong = null) {
       // The source tempo and every source event are preserved by the sampler.
       delete options.bpm; delete options.bpmRange;
     }
+    if (editMode) {
+      options.editMode = editMode;
+      options.selection = selection;
+      options.editStrength = $('#edit-strength').value;
+      options.numSongs = integerInput('#edit-count', 'Number of versions', 1, 4);
+    }
     validateOptions(options);
   } catch (error) { showError(error); return; }
+  // Every entry point keeps generation progress and its cancel action visible.
+  setStudioMode('compose');
   state.continuationSource = promptSong ? { ...state.currentSong } : null;
+  state.generationMode = editMode || (promptSong ? 'continuation' : 'generated');
+  state.generationSelection = selection ? { ...selection } : null;
   state.jobId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const jobId = state.jobId;
   state.incomingSongs = []; state.receivedFirstSong = false; state.cancelled = false;
   state.finishing = false;
   state.leavingDuringGeneration = false;
   state.namingRequested = $('#name-songs').checked;
-  setBusy(true); setProgress(promptSong ? 'Keeping the selected melody and preparing a new phrase…' : 'Getting the local melody model ready…');
+  setBusy(true); setProgress(editMode === 'repair' ? 'Keeping the surrounding notes fixed and preparing repair suggestions…'
+    : editMode === 'variation' ? 'Keeping the surrounding notes fixed and varying your selection…'
+    : promptSong ? 'Keeping the selected melody and preparing a new phrase…' : 'Getting the browser melody model ready…');
   try {
     const modelManifest = await loadManifest();
     await browserCacheReady;
@@ -581,6 +683,7 @@ function newSongId(prefix) {
 }
 
 function setStudioMode(mode, focus = false) {
+  if ((mode === 'convert' && state.busy) || (mode === 'compose' && (state.converting || state.inspecting))) return;
   const converting = mode === 'convert';
   $('#converter-form').hidden = !converting;
   $('#composer-form').hidden = converting;
@@ -593,45 +696,132 @@ function setStudioMode(mode, focus = false) {
 }
 
 function updateStudioButtons() {
-  $('#convert-button').disabled = !state.converterReady || !state.conversionSource || state.converting || state.busy;
-  $('#generate-button').disabled = state.busy || state.converting;
-  $('#continue-song').disabled = state.busy || state.converting;
-  $('#converter-controls').disabled = state.converting;
-  $('#convert-label').textContent = state.converting ? 'Following the melody…' : 'Convert excerpt';
+  const audioWorking = state.converting || state.inspecting;
+  const busy = state.busy || audioWorking;
+  const selected = validScoreSelection(state.selection, state.parsedSong.events.length);
+  const events = selected ? state.parsedSong.events.slice(state.selection.start, state.selection.end) : [];
+  const pitched = events.some(event => event.pitch !== null);
+  $('#convert-button').disabled = !state.audioReady || !state.conversionSource || busy;
+  $('#generate-button').disabled = busy;
+  $('#composer-controls').disabled = busy;
+  $('#convert-tab').disabled = state.busy;
+  $('#compose-tab').disabled = audioWorking;
+  $('#continue-song').disabled = busy;
+  $('#converter-controls').disabled = state.converting || state.busy;
+  $('#convert-label').textContent = state.inspecting ? 'Reading your recording…' : state.converting ? 'Following the melody…' : 'Convert excerpt';
+  $('#cancel-conversion').hidden = !audioWorking;
+  $('#cancel-conversion').disabled = Boolean(state.conversionController?.signal.aborted || state.inspectController?.signal.aborted);
+  $('#play-excerpt').disabled = !state.audioReady || audioWorking;
+  $('#source-waveform').setAttribute('aria-disabled', String(!state.audioReady || busy));
+  $('#note-edit-controls').disabled = busy || !selected;
+  $('#selected-pitch-down').disabled = $('#selected-pitch-up').disabled = !pitched;
+  $('#selected-rest').disabled = !pitched;
+  $('#selected-note').disabled = !events.some(event => event.pitch === null);
+  $('#vary-selection').disabled = $('#repair-selection').disabled = busy || !selected || !pitched || events.length > 16;
+  for (const control of $$('#selection-start, #selection-end, #select-all-notes, #clear-note-selection, #edit-strength, #edit-count, #roll-notes button')) control.disabled = busy;
 }
 
-async function connectConverter() {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 4000);
-  $('#check-converter').disabled = true;
-  $('#converter-health').textContent = 'Checking local converter…';
-  try {
-    const health = await checkConverter({ signal: controller.signal });
-    state.converterReady = health.ready === true;
-    const missing = health.missing_dependencies || health.missing;
-    const dependencyHint = Array.isArray(missing) && missing.every(value => typeof value === 'string') ? `: ${missing.join(', ')}` : '';
-    $('#converter-health').textContent = state.converterReady ? 'Local converter connected' : `Local converter needs its audio dependencies${dependencyHint}`;
-    $('#converter-health').dataset.state = state.converterReady ? 'ready' : 'unavailable';
-    $('#converter-help').hidden = state.converterReady;
-  } catch {
-    state.converterReady = false;
-    $('#converter-health').textContent = 'Audio conversion is available in the local studio';
-    $('#converter-health').dataset.state = 'unavailable';
-    $('#converter-help').hidden = false;
-  } finally { clearTimeout(timeout); $('#check-converter').disabled = false; updateStudioButtons(); }
+function sourceMetadata(duration) {
+  if (!Number.isFinite(duration) || duration <= 0 || !state.conversionSource) return;
+  state.sourceDuration = duration;
+  const start = Number($('#excerpt-start').value);
+  const requested = Number($('#excerpt-duration').value);
+  const available = duration - Math.max(0, start);
+  // Decoding can complete after a person has already adjusted the numeric range.
+  if (Number.isFinite(requested) && requested > available && available > 0) $('#excerpt-duration').value = String(available);
+  $('#audio-file-info').textContent = `${state.conversionSource.name} · ${(state.conversionSource.size / 1024 / 1024).toFixed(1)} MiB · ${formatTime(duration)}`;
+  updateWaveformSelection();
 }
 
-function selectAudioFile(file) {
+function drawSourceWaveform(peaks) {
+  const samples = Array.isArray(peaks) || ArrayBuffer.isView(peaks) ? Array.from(peaks) : [];
+  const peak = Math.max(0.01, ...samples.filter(Number.isFinite));
+  const commands = samples.map((value, index) => {
+    const x = (index + 0.5) / samples.length * 1000;
+    const amplitude = Number.isFinite(value) ? Math.max(1, Math.min(46, Math.abs(value) / peak * 46)) : 1;
+    return `M${x.toFixed(2)},${(50 - amplitude).toFixed(2)}v${(amplitude * 2).toFixed(2)}`;
+  });
+  $('#waveform-peaks').setAttribute('d', commands.join(' '));
+  $('#source-waveform').hidden = false;
+  updateWaveformSelection();
+}
+
+function updateWaveformSelection() {
+  const total = state.sourceDuration;
+  if (!total) return;
+  const start = Math.max(0, Math.min(total, Number($('#excerpt-start').value) || 0));
+  const end = Math.max(start, Math.min(total, start + (Number($('#excerpt-duration').value) || 0)));
+  $('#excerpt-selection').style.left = `${start / total * 100}%`;
+  $('#excerpt-selection').style.width = `${(end - start) / total * 100}%`;
+  for (const [id, value] of [['excerpt-start-handle', start], ['excerpt-end-handle', end]]) {
+    const handle = $(`#${id}`);
+    handle.setAttribute('aria-valuemax', String(total));
+    handle.setAttribute('aria-valuenow', String(value));
+    handle.setAttribute('aria-valuetext', `${value.toFixed(2)} seconds`);
+  }
+}
+
+function setExcerptRange(start, end) {
+  const total = state.sourceDuration;
+  if (!total || total < 0.25) return;
+  start = Math.floor(Math.max(0, Math.min(total - 0.25, start)) * 10000) / 10000;
+  end = Math.max(start + 0.25, Math.min(total, start + 30, end));
+  $('#excerpt-start').value = String(start);
+  // Rounding must never leave a fractional file ending shorter than 0.25s.
+  $('#excerpt-duration').value = String(Math.min(30, total - start, Math.max(0.25, Number((end - start).toFixed(4)))));
+  updateWaveformSelection();
+}
+
+function waveformTime(clientX) {
+  const bounds = $('#source-waveform').getBoundingClientRect();
+  return Math.max(0, Math.min(state.sourceDuration, (clientX - bounds.left) / bounds.width * state.sourceDuration));
+}
+
+function beginExcerptDrag(event) {
+  if (!state.audioReady || state.busy || state.converting || state.inspecting || event.button > 0) return;
+  const start = Number($('#excerpt-start').value) || 0;
+  const end = Math.min(state.sourceDuration, start + (Number($('#excerpt-duration').value) || 12));
+  const time = waveformTime(event.clientX);
+  const target = event.target.closest('button');
+  const mode = target?.id === 'excerpt-start-handle' ? 'start'
+    : target?.id === 'excerpt-end-handle' ? 'end'
+    : event.shiftKey || event.target.closest('#excerpt-selection') ? 'move' : 'new';
+  state.waveformDrag = { pointerId: event.pointerId, mode, time, start, end };
+  $('#source-waveform').setPointerCapture(event.pointerId);
+  event.preventDefault();
+  if (mode === 'new') setExcerptRange(time, time + 0.25);
+}
+
+function moveExcerptDrag(event) {
+  const drag = state.waveformDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  const time = waveformTime(event.clientX);
+  if (drag.mode === 'start') setExcerptRange(Math.max(drag.end - 30, Math.min(drag.end - 0.25, time)), drag.end);
+  else if (drag.mode === 'end') setExcerptRange(drag.start, time);
+  else if (drag.mode === 'move') {
+    const length = Math.min(30, Math.max(0.25, drag.end - drag.start));
+    const start = Math.max(0, Math.min(state.sourceDuration - length, drag.start + time - drag.time));
+    setExcerptRange(start, start + length);
+  } else {
+    const start = Math.max(0, Math.min(drag.time, time));
+    setExcerptRange(start, Math.max(drag.time, time));
+  }
+}
+
+async function selectAudioFile(file) {
+  state.inspectController?.abort();
   const source = $('#source-audio');
   source.pause(); state.excerptPlaying = false;
   if (state.sourceUrl) URL.revokeObjectURL(state.sourceUrl);
-  state.sourceUrl = null; state.conversionSource = null; state.sourceDuration = null;
+  state.sourceUrl = null; state.conversionSource = null; state.sourceDuration = null; state.sourcePeaks = [];
+  state.audioReady = false; state.inspecting = false; state.inspectController = null; state.waveformDrag = null;
   source.removeAttribute('src'); source.hidden = true;
+  $('#source-waveform').hidden = true;
   $('#play-excerpt').disabled = true;
   $('#conversion-results').hidden = true;
   $('#conversion-status').hidden = true;
   if (!file) { updateStudioButtons(); return; }
-  if (file.size > MAX_UPLOAD_BYTES || file.size === 0) {
+  if (file.size > MAX_AUDIO_FILE_BYTES || file.size === 0) {
     $('#audio-file').value = ''; updateStudioButtons();
     showError('Choose a nonempty audio file no larger than 32 MiB. Export a short excerpt for larger songs.'); return;
   }
@@ -640,25 +830,52 @@ function selectAudioFile(file) {
   source.src = state.sourceUrl; source.hidden = false;
   $('#audio-file-info').textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MiB`;
   $('#excerpt-start').value = '0'; $('#excerpt-duration').value = '12';
-  $('#play-excerpt').disabled = false;
+  const controller = new AbortController();
+  state.inspectController = controller; state.inspecting = true;
+  const status = $('#conversion-status');
+  status.hidden = false; status.textContent = 'Reading audio and drawing the waveform…';
   clearError(); updateStudioButtons();
+  try {
+    const info = await inspectAudio(file, { signal: controller.signal, onProgress: message => {
+      if (state.inspectController === controller && !controller.signal.aborted) status.textContent = message;
+    } });
+    if (state.inspectController !== controller || controller.signal.aborted) return;
+    sourceMetadata(info.duration); state.sourcePeaks = info.peaks;
+    drawSourceWaveform(info.peaks); state.audioReady = true;
+    status.textContent = 'Choose the phrase on the waveform, then convert. No audio leaves this browser.';
+  } catch (error) {
+    if (state.inspectController !== controller) return;
+    if (controller.signal.aborted || error?.name === 'AbortError') {
+      $('#audio-file').value = '';
+      status.textContent = 'Audio processing stopped. Choose the file again when you are ready.';
+    }
+    else { status.textContent = 'This recording could not be read. Try a short WAV or MP3 clip.'; showError(error); }
+  } finally {
+    if (state.inspectController === controller) { state.inspectController = null; state.inspecting = false; updateStudioButtons(); }
+  }
 }
 
 function excerptOptions() {
   const options = { start: Number($('#excerpt-start').value), duration: Number($('#excerpt-duration').value),
-    bpm: $('#conversion-bpm').value, source_mode: $('#source-mode').value, preset: $('#conversion-preset').value };
-  transcriptionParameters(state.conversionSource, options);
+    bpm: $('#conversion-bpm').value.trim() ? Number($('#conversion-bpm').value) : undefined,
+    source_mode: $('#source-mode').value, preset: $('#conversion-preset').value,
+    leadPreference: $('#lead-preference').value, grid: Number($('#conversion-grid').value) };
+  if (!state.conversionSource) throw new Error('Choose an audio file first.');
+  if (!$('#excerpt-start').value.trim() || !Number.isFinite(options.start) || options.start < 0) throw new Error('Choose a start time of zero seconds or later.');
+  if (!Number.isFinite(options.duration) || options.duration < 0.25 || options.duration > 30) throw new Error('Choose an excerpt between 0.25 and 30 seconds.');
+  if (options.bpm !== undefined && (!Number.isInteger(options.bpm) || options.bpm < 25 || options.bpm > 900)) throw new Error('Tempo must be a whole number from 25 to 900 BPM.');
   if (state.sourceDuration !== null) {
     if (options.start >= state.sourceDuration) throw new Error('Start the excerpt before the end of the audio file.');
     options.duration = Math.min(options.duration, state.sourceDuration - options.start);
   }
-  transcriptionParameters(state.conversionSource, options);
+  if (options.duration < 0.25) throw new Error('Leave at least 0.25 seconds between the excerpt start and the end of the recording.');
   return options;
 }
 
 async function playExcerpt() {
   try {
     const options = excerptOptions();
+    $('#excerpt-duration').value = String(options.duration); updateWaveformSelection();
     stopPlayback();
     const source = $('#source-audio');
     source.currentTime = options.start;
@@ -669,19 +886,22 @@ async function playExcerpt() {
 
 async function convertExcerpt(event) {
   event.preventDefault();
-  if (state.converting || state.busy || !state.converterReady) return;
+  if (state.converting || state.busy || state.inspecting || !state.audioReady) return;
   let options;
   try { options = excerptOptions(); } catch (error) { showError(error); return; }
+  $('#excerpt-duration').value = String(options.duration); updateWaveformSelection();
   const file = state.conversionSource;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new Error('Conversion took longer than ten minutes. Check the local server before trying again.')), 600000);
+  const timeout = setTimeout(() => controller.abort(new Error('Audio processing took longer than ten minutes. Try a shorter excerpt.')), 600000);
   state.conversionController = controller; state.converting = true;
   clearError(); updateStudioButtons();
   const status = $('#conversion-status');
-  status.hidden = false; status.textContent = 'Starting conversion…';
+  status.hidden = false; status.textContent = 'Preparing browser transcription…';
   $('#conversion-results').hidden = true;
   try {
-    const result = await transcribeAudio(file, options, { signal: controller.signal, onProgress: message => { status.textContent = message; } });
+    const result = await transcribeInBrowser(file, options, { signal: controller.signal, onProgress: message => { if (!controller.signal.aborted) status.textContent = message; } });
+    if (controller.signal.aborted) return;
+    if (!Array.isArray(result.candidates) || !result.candidates.length) throw new Error('No melody could be detected. Try a clearer lead or a different excerpt.');
     const records = result.candidates.map((candidate, index) => {
       const parsed = parseRtttl(candidate.rtttl);
       return { id: newSongId('converted'), title: candidate.name || `Interpretation ${index + 1}`, name: parsed.name,
@@ -709,7 +929,10 @@ async function convertExcerpt(event) {
       const message = document.createElement('p'); message.className = 'field-description'; message.textContent = warning; summary.appendChild(message);
     }
   } catch (error) {
-    if (error?.name !== 'AbortError') { status.textContent = 'Conversion did not finish. Your existing melodies are kept.'; showError(error); }
+    if (controller.signal.aborted || error?.name === 'AbortError') {
+      status.textContent = 'Audio processing stopped. Your existing melodies are kept.';
+      if (controller.signal.reason instanceof Error && controller.signal.reason.name !== 'AbortError') showError(controller.signal.reason);
+    } else { status.textContent = 'Conversion did not finish. Your existing melodies are kept.'; showError(error); }
   } finally {
     clearTimeout(timeout); state.conversionController = null; state.converting = false; updateStudioButtons();
   }
@@ -727,11 +950,36 @@ function saveScoreVersion(rtttl, label) {
   try {
     const parsed = parseRtttl(rtttl);
     const record = { id: newSongId('edited'), title: `${parsed.name} · ${label}`, name: parsed.name,
-      rtttl: rtttl.trim(), source: 'edited', parentId: state.currentSong.id };
+      rtttl: rtttl.trim(), source: 'edited', parentId: state.currentSong.id,
+      selectedRange: validScoreSelection(state.selection, parsed.events.length) ? { ...state.selection } : null };
     retainSourceVersion(state.currentSong);
     state.songs = appendStudioSongs(state.songs, [record], MAX_SAVED_SONGS);
     clearError(); selectSong(record); drawLibrary(); saveLibrary();
   } catch (error) { showError(error); }
+}
+
+function editSelectedEvents(change, label) {
+  if (state.busy || state.converting || state.inspecting) return;
+  try { saveScoreVersion(editScoreSelection(state.currentSong.rtttl, state.selection, change), label); }
+  catch (error) { showError(error); }
+}
+
+function selectedPromptSong() {
+  return { name: state.parsedSong.name, bpm: state.parsedSong.bpm,
+    events: state.parsedSong.events.map(({ pitch, duration, dotted }) => ({ pitch, duration, dotted })) };
+}
+
+function readSelectionInputs() {
+  const rawStart = $('#selection-start').value, rawEnd = $('#selection-end').value;
+  const start = Number(rawStart), end = Number(rawEnd || rawStart);
+  const selection = { start: start - 1, end };
+  if (validScoreSelection(selection, state.parsedSong.events.length)) selectNoteRange(selection.start, selection.end - 1);
+  else {
+    clearNoteSelection();
+    // Preserve a partly entered range while the person moves to the second field.
+    $('#selection-start').value = rawStart; $('#selection-end').value = rawEnd;
+    $('#selection-summary').textContent = `Enter event numbers from 1 to ${state.parsedSong.events.length}, with the start first.`;
+  }
 }
 
 $('#compose-tab').addEventListener('click', () => setStudioMode('compose'));
@@ -742,19 +990,11 @@ $('.studio-modes').addEventListener('keydown', event => {
   const mode = event.key === 'Home' ? 'compose' : event.key === 'End' ? 'convert' : $('#convert-tab').getAttribute('aria-selected') === 'true' ? 'compose' : 'convert';
   setStudioMode(mode, true);
 });
-$('#check-converter').addEventListener('click', connectConverter);
-$('#audio-file').addEventListener('change', event => selectAudioFile(event.target.files?.[0]));
+$('#audio-file').addEventListener('change', event => { void selectAudioFile(event.target.files?.[0]); });
 $('#source-audio').addEventListener('loadedmetadata', () => {
   const source = $('#source-audio');
   if (!state.conversionSource || source.currentSrc !== state.sourceUrl) return;
-  const duration = source.duration;
-  if (Number.isFinite(duration) && duration > 0) {
-    state.sourceDuration = duration;
-    // Metadata may arrive after the user has already chosen an excerpt.
-    const requested = Number($('#excerpt-duration').value);
-    if (Number.isFinite(requested) && requested > duration) $('#excerpt-duration').value = String(duration);
-    $('#audio-file-info').textContent = `${state.conversionSource.name} · ${(state.conversionSource.size / 1024 / 1024).toFixed(1)} MiB · ${formatTime(duration)}`;
-  }
+  sourceMetadata(source.duration);
 });
 $('#source-audio').addEventListener('play', stopPlayback);
 $('#source-audio').addEventListener('timeupdate', () => {
@@ -763,10 +1003,71 @@ $('#source-audio').addEventListener('timeupdate', () => {
   if ($('#source-audio').currentTime >= end) { $('#source-audio').pause(); state.excerptPlaying = false; }
 });
 $('#source-audio').addEventListener('error', () => {
-  if (state.conversionSource) $('#audio-file-info').textContent = `${state.conversionSource.name} · This browser cannot preview this codec. The local converter may still decode it.`;
+  if (state.conversionSource) $('#audio-file-info').textContent = `${state.conversionSource.name} · This browser cannot preview this codec. If decoding also fails, try a WAV or MP3 version.`;
 });
+$('#source-waveform').addEventListener('pointerdown', beginExcerptDrag);
+$('#source-waveform').addEventListener('pointermove', moveExcerptDrag);
+for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) $('#source-waveform').addEventListener(type, () => { state.waveformDrag = null; });
+for (const id of ['excerpt-start', 'excerpt-duration']) $(`#${id}`).addEventListener('input', updateWaveformSelection);
+for (const id of ['excerpt-start-handle', 'excerpt-end-handle']) {
+  $(`#${id}`).addEventListener('keydown', event => {
+    if (!state.audioReady || state.busy || state.converting || state.inspecting || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const start = Number($('#excerpt-start').value), end = start + Number($('#excerpt-duration').value);
+    const step = (event.shiftKey ? 1 : 0.1) * (event.key === 'ArrowLeft' ? -1 : 1);
+    if (id === 'excerpt-start-handle') {
+      const next = event.key === 'Home' ? Math.max(0, end - 30) : event.key === 'End' ? end - 0.25 : start + step;
+      setExcerptRange(Math.max(end - 30, Math.min(end - 0.25, next)), end);
+    } else {
+      const next = event.key === 'Home' ? start + 0.25 : event.key === 'End' ? Math.min(state.sourceDuration, start + 30) : end + step;
+      setExcerptRange(start, next);
+    }
+  });
+}
 $('#play-excerpt').addEventListener('click', playExcerpt);
 $('#converter-form').addEventListener('submit', convertExcerpt);
+$('#cancel-conversion').addEventListener('click', () => {
+  state.inspectController?.abort(); state.conversionController?.abort();
+  $('#conversion-status').textContent = 'Stopping audio processing… A browser decode already in progress may need to finish.';
+  updateStudioButtons();
+});
+$('#roll-notes').addEventListener('click', event => {
+  const button = event.target.closest('[data-note]');
+  if (!button || button.disabled) return;
+  const index = Number(button.dataset.note);
+  selectNoteRange(event.shiftKey && state.selectionAnchor !== null ? state.selectionAnchor : index, index);
+});
+$('#roll-notes').addEventListener('keydown', event => {
+  const button = event.target.closest('[data-note]');
+  if (!button || button.disabled) return;
+  if (event.key === 'Escape') { event.preventDefault(); clearNoteSelection(); return; }
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const index = Number(button.dataset.note), last = state.parsedSong.events.length - 1;
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? last : Math.max(0, Math.min(last, index + (event.key === 'ArrowLeft' ? -1 : 1)));
+  selectNoteRange(event.shiftKey ? (state.selectionAnchor ?? index) : next, next);
+  $(`#roll-notes [data-note="${next}"]`).focus();
+});
+for (const id of ['selection-start', 'selection-end']) $(`#${id}`).addEventListener('input', readSelectionInputs);
+$('#select-all-notes').addEventListener('click', () => selectNoteRange(0, state.parsedSong.events.length - 1));
+$('#clear-note-selection').addEventListener('click', clearNoteSelection);
+$('#selected-pitch-down').addEventListener('click', () => editSelectedEvents({ semitones: -1 }, 'selected pitches −1'));
+$('#selected-pitch-up').addEventListener('click', () => editSelectedEvents({ semitones: 1 }, 'selected pitches +1'));
+$('#selected-rest').addEventListener('click', () => editSelectedEvents({ rest: true }, 'selected rests'));
+$('#selected-note').addEventListener('click', () => editSelectedEvents({ restoreRests: true }, 'rests to C5'));
+$('#apply-selected-duration').addEventListener('click', () => editSelectedEvents({ duration: Number($('#selected-duration').value), dotted: $('#selected-dotted').checked }, 'selected rhythm'));
+for (const mode of ['variation', 'repair']) $(`#${mode === 'variation' ? 'vary' : 'repair'}-selection`).addEventListener('click', event => {
+  void generate(event, { promptSong: selectedPromptSong(), editMode: mode, selection: state.selection && { ...state.selection } });
+});
+for (const [id, key] of [['compare-parent', 'parentId'], ['compare-version', 'versionId']]) $(`#${id}`).addEventListener('click', () => {
+  const comparison = state.comparison;
+  const song = comparison && state.songs.find(item => String(item.id) === String(comparison[key]));
+  if (!song) return;
+  const range = comparison.selection;
+  selectSong(song, { preserveComparison: true });
+  if (validScoreSelection(range, state.parsedSong.events.length)) selectNoteRange(range.start, range.end - 1);
+  void togglePlayback();
+});
 $('#save-score').addEventListener('click', () => saveScoreVersion($('#score-input').value, 'edited'));
 for (const [id, shift] of [['transpose-down', -1], ['transpose-up', 1]]) {
   $(`#${id}`).addEventListener('click', () => {
@@ -779,9 +1080,7 @@ $('#apply-score-tempo').addEventListener('click', () => {
   catch (error) { showError(error); }
 });
 $('#continue-song').addEventListener('click', event => {
-  setStudioMode('compose');
-  void generate(event, { name: state.parsedSong.name, bpm: state.parsedSong.bpm,
-    events: state.parsedSong.events.map(({ pitch, duration, dotted }) => ({ pitch, duration, dotted })) });
+  void generate(event, { promptSong: selectedPromptSong() });
 });
 
 $$('[data-profile]').forEach(button => button.addEventListener('click', () => chooseProfile(button.dataset.profile)));
@@ -827,6 +1126,7 @@ window.addEventListener('pagehide', () => {
   saveLibrary(); stopPlayback();
   $('#source-audio').pause();
   state.conversionController?.abort();
+  state.inspectController?.abort();
   if (state.busy) {
     state.cancelled = true; state.jobId = null; state.finishing = false;
   }
@@ -868,4 +1168,3 @@ async function detectHardware() {
   $('#hardware-status').dataset.state = 'cpu';
 }
 void detectHardware();
-void connectConverter();

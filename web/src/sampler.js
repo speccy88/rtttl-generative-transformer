@@ -9,14 +9,53 @@ export const DEFAULT_OPTIONS = Object.freeze({
 
 const MODEL_DURATIONS = new Set([1, 2, 4, 8, 16, 32]);
 
+export const EDIT_LIMITS = Object.freeze({ selectedEvents: 16, batchSize: 4, repairCandidates: 4,
+  suffixEvents: 8, inferenceCalls: 320 });
+const EDIT_STRENGTHS = Object.freeze({ low: .25, medium: .5, high: 1 });
+
+// Edit API: editMode is 'variation' or 'repair'; selection is a zero-based,
+// half-open event range of 1..16 events containing at least one pitched note.
+// Strength accepts low=.25, medium=.5 (default), high=1, or a number in (0,1].
+// The maximum pitch displacement is 1+floor(11*strength) semitones and at most
+// ceil(selected pitched notes*strength) pitches may change. Tempo, duration,
+// dottedness, rests, event count and every unselected event remain exact.
+// minEvents/maxEvents are irrelevant to edits. A repair may prefer the original.
+function validateEditOptions(options, song) {
+  if (!['variation', 'repair'].includes(options.editMode)) throw new Error('editMode must be variation or repair.');
+  if (!song) throw new Error('Variation and repair require a parsed promptSong.');
+  const { selection } = options;
+  if (!selection || typeof selection !== 'object' || Array.isArray(selection)
+      || !Number.isInteger(selection.start) || !Number.isInteger(selection.end)
+      || selection.start < 0 || selection.end > song.events.length || selection.end <= selection.start) {
+    throw new Error('Select a valid half-open event range: 0 <= start < end <= source event count.');
+  }
+  if (selection.end - selection.start > EDIT_LIMITS.selectedEvents) {
+    throw new Error('Select at most ' + EDIT_LIMITS.selectedEvents + ' events for one variation or repair.');
+  }
+  const pitchedIndices = [];
+  for (let i = selection.start; i < selection.end; i++) if (song.events[i].pitch !== null) pitchedIndices.push(i);
+  if (!pitchedIndices.length) throw new Error('Select at least one pitched note; rests are preserved.');
+  const supplied = options.editStrength ?? 'medium';
+  const strength = typeof supplied === 'string' ? EDIT_STRENGTHS[supplied] : supplied;
+  if (!Number.isFinite(strength) || strength <= 0 || strength > 1) {
+    throw new Error('editStrength must be low, medium, high, or a number greater than 0 and at most 1.');
+  }
+  const numSongs = options.numSongs ?? DEFAULT_OPTIONS.numSongs;
+  if (!Number.isInteger(numSongs) || numSongs < 1 || numSongs > EDIT_LIMITS.batchSize) {
+    throw new Error('Choose between 1 and ' + EDIT_LIMITS.batchSize + ' edited versions per batch.');
+  }
+  return { selection: { start: selection.start, end: selection.end }, strength, pitchedIndices,
+    maxPitchDistance: 1 + Math.floor(11 * strength), maxChangedEvents: Math.ceil(pitchedIndices.length * strength) };
+}
+
 // A prompt is a parsed score, not raw tokens or an audio recording. Only its
 // musical fields enter the model; caller-owned events and cached seconds are
 // never mutated or trusted. Unsupported notes are rejected, never rounded.
 export function validatePromptSong(song) {
-  if (!song || typeof song !== 'object' || Array.isArray(song)) throw new Error('A continuation needs a parsed promptSong.');
+  if (!song || typeof song !== 'object' || Array.isArray(song)) throw new Error('A melody source must be a parsed promptSong.');
   if (!Number.isInteger(song.bpm) || song.bpm < 25 || song.bpm > 900) throw new Error('The source tempo must be an integer from 25 to 900 BPM.');
-  if (!Array.isArray(song.events) || !song.events.length || song.events.length >= MAX_EVENTS) {
-    throw new Error(`A continuation source must contain between 1 and ${MAX_EVENTS - 1} events.`);
+  if (!Array.isArray(song.events) || !song.events.length || song.events.length > MAX_EVENTS) {
+    throw new Error(`A melody source must contain between 1 and ${MAX_EVENTS} events.`);
   }
   const events = Array.from(song.events, (event, index) => {
     if (!event || typeof event !== 'object' || Array.isArray(event)) throw new Error(`Invalid source event ${index + 1}.`);
@@ -24,13 +63,13 @@ export function validatePromptSong(song) {
       throw new Error(`Source note ${index + 1} must be a rest or a MIDI pitch from 60 to 107 (C4–B7).`);
     }
     if (!MODEL_DURATIONS.has(event.duration)) {
-      throw new Error(`Source note ${index + 1}: the melody model supports durations 1, 2, 4, 8, 16 and 32; 64th notes cannot be continued without editing them first.`);
+      throw new Error(`Source note ${index + 1}: the melody model supports durations 1, 2, 4, 8, 16 and 32; 64th notes need their duration edited first.`);
     }
     if (typeof event.dotted !== 'boolean') throw new Error(`Source note ${index + 1} must specify dotted as true or false.`);
     return { pitch: event.pitch, duration: event.duration, dotted: event.dotted };
   });
   const durationSeconds = events.reduce((total, event) => total + eventSeconds(song.bpm, event.duration, event.dotted), 0);
-  if (durationSeconds >= MAX_AUDIO_SECONDS) throw new Error('The source already reaches the five-minute playback limit; select a shorter excerpt to continue.');
+  if (durationSeconds > MAX_AUDIO_SECONDS) throw new Error('The source exceeds the five-minute playback limit; select a shorter excerpt.');
   return { name: typeof song.name === 'string' ? song.name.slice(0, 256) : 'Source', bpm: song.bpm, events, durationSeconds };
 }
 
@@ -49,12 +88,13 @@ function validateContinuationBudget(song, options) {
 
 export function validateOptions(options = {}) {
   const value = { ...DEFAULT_OPTIONS, ...options };
+  const editing = value.editMode !== undefined && value.editMode !== null;
   const integer = (name, minimum, maximum = Number.MAX_SAFE_INTEGER) => {
     if (!Number.isSafeInteger(value[name]) || value[name] < minimum || value[name] > maximum) {
       throw new Error(`${name} must be an integer from ${minimum} to ${maximum}.`);
     }
   };
-  integer('minEvents', 1, 256); integer('maxEvents', value.minEvents, 256);
+  if (!editing) { integer('minEvents', 1, 256); integer('maxEvents', value.minEvents, 256); }
   integer('topK', 0, 940); integer('repetitionWindow', 1, 512);
   integer('maxPitchRun', 0, 256); integer('maxMotifRepeats', 0, 256); integer('maxMotifLength', 2, 256);
   if (value.maxMotifRepeats === 1) throw new Error('Motif repeat limit must be 0 (off), or at least 2.');
@@ -65,14 +105,22 @@ export function validateOptions(options = {}) {
   // tempo is authoritative; controls intended for a new song cannot retime it.
   if (value.promptSong !== undefined && value.promptSong !== null) {
     value.promptSong = validatePromptSong(value.promptSong);
-    validateContinuationBudget(value.promptSong, value);
+    if (!editing) validateContinuationBudget(value.promptSong, value);
     value.bpm = value.promptSong.bpm;
     value.bpmRange = null;
+  }
+  if (editing) {
+    const edit = validateEditOptions(value, value.promptSong);
+    value.selection = edit.selection;
+    value.editStrength = edit.strength;
+  } else if (value.selection !== undefined || value.editStrength !== undefined) {
+    throw new Error('selection and editStrength require editMode variation or repair.');
   }
   const plan = planBatch(value);
   if (value.promptSong) for (const settings of plan) {
     settings.tempoSource = 'prompt';
-    settings.continuation = true;
+    settings.continuation = !editing;
+    if (editing) settings.editMode = value.editMode;
   }
   return { options: value, plan };
 }
@@ -230,8 +278,151 @@ export class GenerationCancelled extends Error {
   constructor() { super('Generation cancelled.'); this.name = 'GenerationCancelled'; }
 }
 
+// Raw full-vocabulary likelihood, without temperature, top-k, profile guidance,
+// or the proposal's pitch constraints. All repair candidates score the same
+// number of tokens, including unchanged durations and the known right suffix.
+function tokenLogProbability(logits, id) {
+  let maximum = -Infinity;
+  for (const score of logits) maximum = Math.max(maximum, score);
+  let normalizer = 0;
+  for (const score of logits) normalizer += Math.exp(score - maximum);
+  return logits[id] - maximum - Math.log(normalizer);
+}
+
+async function generateEditedSong({ infer, tokenizer, options, settings, seed, contextLength,
+  name, isCancelled, onProgress }) {
+  const source = validatePromptSong(options.promptSong);
+  const edit = validateEditOptions(options, source);
+  const { selection, strength, pitchedIndices, maxPitchDistance, maxChangedEvents } = edit;
+  const sourceIds = tokenizer.encodePrefix(source);
+  const firstToken = 2 + selection.start * 2;
+  const lastToken = 2 + selection.end * 2;
+  const suffixEventCount = Math.min(EDIT_LIMITS.suffixEvents, source.events.length - selection.end);
+  const lastScoredToken = lastToken + suffixEventCount * 2;
+  const effectiveSettings = { ...settings, bpm: source.bpm, tempoSource: 'prompt', continuation: false,
+    editMode: options.editMode, editStrength: strength };
+  const cache = new Map();
+  let inferenceCalls = 0;
+  let candidateIndex = 0;
+  let phase = 'sample';
+  const checkCancelled = () => { if (isCancelled()) throw new GenerationCancelled(); };
+  const progress = eventCount => onProgress({ editMode: options.editMode, editPhase: phase,
+    eventCount, maxEvents: selection.end - selection.start + (phase === 'score' ? suffixEventCount : 0),
+    candidateIndex, candidateCount: options.editMode === 'repair' ? EDIT_LIMITS.repairCandidates + 1 : 1,
+    inferenceCalls, inferenceBudget: EDIT_LIMITS.inferenceCalls, selection });
+  const predict = async ids => {
+    checkCancelled();
+    const context = neuralContext(ids, contextLength);
+    const key = context.join(',');
+    if (cache.has(key)) return cache.get(key);
+    if (inferenceCalls >= EDIT_LIMITS.inferenceCalls) throw new Error('This edit exceeded its browser inference budget. Select fewer notes.');
+    inferenceCalls++;
+    const output = await infer(context);
+    checkCancelled();
+    if (!output || output.length !== tokenizer.vocabSize) throw new Error('The model output does not match its vocabulary.');
+    if (!Array.from(output).every(Number.isFinite)) throw new Error('The model produced non-finite logits while editing.');
+    const logits = Float32Array.from(output);
+    cache.set(key, logits);
+    // Cached or WASM inference may otherwise occupy one task until completion.
+    if (inferenceCalls % 4 === 0) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+      checkCancelled();
+    }
+    return logits;
+  };
+  const changedCount = ids => pitchedIndices.reduce((count, index) => count + Number(ids[2 + index * 2] !== sourceIds[2 + index * 2]), 0);
+
+  const propose = async index => {
+    checkCancelled();
+    candidateIndex = index;
+    phase = 'sample';
+    const rng = createRng(seed + ':' + options.editMode + ':candidate:' + index);
+    const shuffled = [...pitchedIndices];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    const editable = new Set(shuffled.slice(0, maxChangedEvents));
+    const requiredChange = shuffled[0];
+    const ids = sourceIds.slice(0, firstToken);
+    const history = ids.slice(2).filter((_, index) => index % 2 === 0);
+    for (let index = selection.start; index < selection.end; index++) {
+      checkCancelled();
+      const originalId = sourceIds[2 + index * 2];
+      let next = originalId;
+      if (editable.has(index)) {
+        const originalPitch = source.events[index].pitch;
+        const allowed = [...tokenizer.pitchById.keys()].filter(id => Math.abs(tokenizer.pitchById.get(id) - originalPitch) <= maxPitchDistance
+          && (index !== requiredChange || id !== originalId));
+        const raw = await predict(ids);
+        const logits = applyGuidance(raw, allowed, history, tokenizer, effectiveSettings);
+        next = sampleToken(logits, allowed, rng, options);
+      }
+      // Rhythm and rests are forced source tokens, not generated or rounded.
+      ids.push(next, sourceIds[3 + index * 2]);
+      history.push(next);
+      progress(index - selection.start + 1);
+    }
+    return [...ids, ...sourceIds.slice(lastToken)];
+  };
+
+  let chosen;
+  let scoreDetails = null;
+  let originalChosen = false;
+  if (options.editMode === 'variation') {
+    chosen = await propose(0);
+  } else {
+    const candidates = [{ ids: sourceIds, original: true }];
+    const seen = new Set([sourceIds.slice(firstToken, lastToken).join(',')]);
+    for (let index = 1; index <= EDIT_LIMITS.repairCandidates; index++) {
+      const ids = await propose(index);
+      const key = ids.slice(firstToken, lastToken).join(',');
+      if (!seen.has(key)) { candidates.push({ ids, original: false }); seen.add(key); }
+    }
+    phase = 'score';
+    for (let index = 0; index < candidates.length; index++) {
+      checkCancelled();
+      candidateIndex = index;
+      const candidate = candidates[index];
+      let spanLogLikelihood = 0;
+      let suffixLogLikelihood = 0;
+      for (let offset = firstToken; offset < lastScoredToken; offset++) {
+        const logits = await predict(candidate.ids.slice(0, offset));
+        const likelihood = tokenLogProbability(logits, candidate.ids[offset]);
+        if (offset < lastToken) spanLogLikelihood += likelihood;
+        else suffixLogLikelihood += likelihood;
+        if (offset % 2 === 1) progress((offset - firstToken + 1) / 2);
+      }
+      candidate.score = { candidateIndex: index, original: candidate.original, changedEventCount: changedCount(candidate.ids),
+        spanLogLikelihood, suffixLogLikelihood, totalLogLikelihood: spanLogLikelihood + suffixLogLikelihood };
+    }
+    // Stable ties prefer the original, then the first sampled alternative.
+    let winner = candidates[0];
+    for (const candidate of candidates.slice(1)) if (candidate.score.totalLogLikelihood > winner.score.totalLogLikelihood + 1e-7) winner = candidate;
+    chosen = winner.ids;
+    originalChosen = winner.original;
+    scoreDetails = { method: 'forward-log-likelihood', scoreUnit: 'natural-log',
+      suffixEventCount, scoredTokenCount: lastScoredToken - firstToken,
+      sampledCandidateAttempts: EDIT_LIMITS.repairCandidates, candidateCount: candidates.length,
+      originalLogLikelihood: candidates[0].score.totalLogLikelihood, winningLogLikelihood: winner.score.totalLogLikelihood,
+      scoreDelta: winner.score.totalLogLikelihood - candidates[0].score.totalLogLikelihood,
+      candidates: candidates.map(candidate => candidate.score) };
+  }
+  checkCancelled();
+  const song = tokenizer.decode([...chosen, tokenizer.eosId], name);
+  return { ...song, settings: effectiveSettings, seed, continuation: false, prefixEventCount: selection.start,
+    generatedEventCount: 0, forcedEos: false,
+    interventions: { penalty_steps: 0, pitch_run_blocks: 0, motif_blocks: 0 },
+    editMode: options.editMode, selection, editStrength: strength, changedEventCount: changedCount(chosen),
+    maxPitchDistance, maxChangedEvents, originalChosen,
+    repairMethod: options.editMode === 'repair' ? 'forward-likelihood-reranking' : null, scoreDetails, inferenceCalls };
+}
+
 export async function generateSong({ infer, tokenizer, options, settings, seed, contextLength = 256,
   name = 'Melody', isCancelled = () => false, onProgress = () => {} }) {
+  if (options.editMode !== undefined && options.editMode !== null) {
+    return generateEditedSong({ infer, tokenizer, options, settings, seed, contextLength, name, isCancelled, onProgress });
+  }
   const prompt = options.promptSong === undefined || options.promptSong === null ? null : validatePromptSong(options.promptSong);
   if (prompt) validateContinuationBudget(prompt, options);
   const prefixEventCount = prompt?.events.length ?? 0;

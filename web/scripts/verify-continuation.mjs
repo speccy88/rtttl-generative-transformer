@@ -1,4 +1,5 @@
-// Real-checkpoint CPU verification, not a browser/WebGPU/WASM lifecycle test.
+// Real-checkpoint continuation/variation/repair CPU verification, not a
+// browser/WebGPU/WASM lifecycle test. No generated melodies are published.
 // Run from web/: node scripts/verify-continuation.mjs MODEL_DIRECTORY [RESULT_JSON]
 // MODEL_DIRECTORY must contain model.onnx and tokenizer.json matching
 // public/model-manifest.json. This script does not download model files.
@@ -31,6 +32,7 @@ async function verify(ort) {
   });
   const initialized = performance.now();
   const runs = [];
+  const editRuns = [];
   try {
     for (const seed of [42, 42, 43]) {
       const { options, plan } = validateOptions({ promptSong, minEvents: 8, maxEvents: 8,
@@ -72,9 +74,75 @@ async function verify(ort) {
     }
     assert.equal(runs[0].rtttlSha256, runs[1].rtttlSha256);
     assert.deepEqual(promptSong, original);
+    for (const editMode of ['variation', 'repair']) for (const seed of [42, 42, 43]) {
+      const selection = { start: 2, end: 6 };
+      const { options, plan } = validateOptions({ promptSong, editMode, selection, editStrength: 'medium',
+        profile: 'none', numSongs: 1, seed, temperature: .8, topK: 20, topP: .95 });
+      let inferenceCalls = 0;
+      let firstContext = null;
+      let logitRange = null;
+      const runStart = performance.now();
+      const result = await generateSong({ tokenizer, options, settings: plan[0], seed, contextLength: manifest.contextLength,
+        infer: async context => {
+          inferenceCalls++;
+          firstContext ??= [...context];
+          const tensor = new ort.Tensor('int64', BigInt64Array.from(context, BigInt), [1, context.length]);
+          let prediction;
+          try {
+            prediction = await session.run({ input_ids: tensor });
+            const output = prediction.logits;
+            assert.equal(output.dims.at(-1), 940);
+            const values = Float32Array.from(output.data.subarray(output.data.length - 940));
+            assert.ok([...values].every(Number.isFinite));
+            logitRange ??= [Math.min(...values), Math.max(...values)];
+            return values;
+          } finally {
+            tensor.dispose();
+            if (prediction) Object.values(prediction).forEach(value => value.dispose());
+          }
+        },
+      });
+      assert.deepEqual(firstContext, tokenizer.encodePrefix(promptSong).slice(0, firstContext.length));
+      assert.equal(result.bpm, original.bpm);
+      assert.equal(result.events.length, original.events.length);
+      let changedEventCount = 0;
+      for (let index = 0; index < original.events.length; index++) {
+        const source = original.events[index], edited = result.events[index];
+        assert.equal(edited.duration, source.duration);
+        assert.equal(edited.dotted, source.dotted);
+        if (index < selection.start || index >= selection.end || source.pitch === null) assert.equal(edited.pitch, source.pitch);
+        else assert.ok(Math.abs(edited.pitch - source.pitch) <= result.maxPitchDistance);
+        changedEventCount += Number(edited.pitch !== source.pitch);
+      }
+      assert.equal(result.changedEventCount, changedEventCount);
+      assert.ok(changedEventCount <= result.maxChangedEvents);
+      if (editMode === 'variation') assert.ok(changedEventCount > 0);
+      else {
+        assert.equal(result.repairMethod, 'forward-likelihood-reranking');
+        assert.equal(result.scoreDetails.suffixEventCount, 2);
+        assert.equal(result.scoreDetails.candidates[0].original, true);
+        assert.ok(result.scoreDetails.candidateCount >= 2);
+        assert.ok(result.scoreDetails.scoreDelta >= 0);
+        assert.equal(result.originalChosen, changedEventCount === 0);
+      }
+      assert.equal(inferenceCalls, result.inferenceCalls);
+      assert.ok(inferenceCalls > 0 && inferenceCalls <= 320);
+      assert.ok(logitRange[1] > logitRange[0] + 1);
+      assert.deepEqual(promptSong, original);
+      assert.equal(parseRtttl(result.rtttl).events.length, original.events.length);
+      editRuns.push({ editMode, seed, selection, editStrength: result.editStrength,
+        inferenceCalls, elapsedMs: Math.round(performance.now() - runStart), logitRange,
+        firstContextMatchesSourcePrefix: true, unchangedOutsideSelection: true, timingAndRestsPreserved: true,
+        changedEventCount, originalChosen: result.originalChosen, repairMethod: result.repairMethod,
+        scoreDetails: result.scoreDetails, rtttlSha256: sha256(result.rtttl) });
+    }
+    for (const mode of ['variation', 'repair']) {
+      const matching = editRuns.filter(run => run.editMode === mode);
+      assert.equal(matching[0].rtttlSha256, matching[1].rtttlSha256);
+    }
   } finally { await session.release(); }
   const evidence = { status: 'PASS', verification: 'Real published ONNX weights, native ONNX Runtime CPU inference; no mocked logits.',
-    scope: 'Verifies checkpoint compatibility, genuine source conditioning, exact prefix preservation and seeded sampling on native CPU. Does not validate browser worker behavior, WebGPU, WASM, mobile devices, musical quality or audio transcription accuracy.',
+    scope: 'Verifies checkpoint compatibility, genuine source conditioning, exact continuation prefixes, constrained selected-pitch variation, baseline-and-suffix repair scoring, unchanged rhythm/rests/unselected events, and seeded sampling on native CPU. Does not validate browser worker behavior, WebGPU, WASM, mobile devices, musical quality or audio transcription accuracy. Repair is autoregressive likelihood reranking, not trained masked infilling or acoustic correction.',
     modelSha256: sha256(bytes), vocabularySha256: sha256(vocabulary), modelUrl: manifest.modelUrl,
     runtime: ort.env.versions, executionProvider: 'cpu',
     initializationMs: Math.round(initialized - started), sourceRtttl,
@@ -82,7 +150,11 @@ async function verify(ort) {
     // Different seeds can legitimately sample identical sequences; report this
     // observation rather than making diversity a correctness requirement.
     changedSeedDifferent: runs[0].rtttlSha256 !== runs[2].rtttlSha256,
-    outputPolicy: 'Only output hashes are retained; generated model melodies are excluded from the public evidence.', runs };
+    editSameSeedIdentical: ['variation', 'repair'].every(mode => {
+      const matching = editRuns.filter(run => run.editMode === mode);
+      return matching[0].rtttlSha256 === matching[1].rtttlSha256;
+    }),
+    outputPolicy: 'Only output hashes and aggregate scores are retained; generated model melodies are excluded from the public evidence.', runs, editRuns };
   return evidence;
 }
 
