@@ -60,6 +60,37 @@ function installWorkerObserver() {
   };
 }
 
+function expectPitchOnlyEdit(before, after, selection) {
+  expect(after.bpm).toBe(before.bpm);
+  expect(after.events.length).toBe(before.events.length);
+  let changed = 0;
+  for (let index = 0; index < before.events.length; index++) {
+    const original = before.events[index], edited = after.events[index];
+    expect(edited.duration).toBe(original.duration);
+    expect(edited.dotted).toBe(original.dotted);
+    expect(edited.pitch === null).toBe(original.pitch === null);
+    if (index < selection.start || index >= selection.end || original.pitch === null) expect(edited).toEqual(original);
+    else changed += Number(edited.pitch !== original.pitch);
+  }
+  return changed;
+}
+
+async function selectedTranscription(page) {
+  const { library, transcription } = await page.evaluate(() => ({
+    library: JSON.parse(localStorage.getItem('pocket-composer-library-v1')),
+    transcription: window.__actualWorkerEvents.findLast(event => event.type === 'result' && event.result?.candidates)?.result,
+  }));
+  expect(transcription?.analysis.model).toBe('Spotify Basic Pitch 0.4.0');
+  expect(transcription.analysis.backend).toBe('wasm');
+  expect(transcription.evidence.frameCount).toBeGreaterThan(0);
+  expect(transcription.evidence.events.length).toBeGreaterThan(0);
+  const selected = library.songs.find(song => song.id === library.selectedId);
+  expect(selected?.source).toBe('converted');
+  expect(selected.rtttl).toBe(transcription.candidates[0].rtttl);
+  await expect(page.locator('#score-input')).toHaveValue(selected.rtttl);
+  return { library, selected, song: parseRtttl(selected.rtttl) };
+}
+
 for (const browserName of ['chromium', 'firefox', 'webkit']) {
   test(`real Basic Pitch transcribes a local WAV on static ${browserName} without an API`, async ({ baseURL }, testInfo) => {
     test.setTimeout(180000);
@@ -83,9 +114,9 @@ for (const browserName of ['chromium', 'firefox', 'webkit']) {
       await page.locator('#convert-button').click();
       await expect(page.locator('#conversion-status')).toContainText('interpretation', { timeout: 150000 });
       await expect(page.locator('#error-message')).not.toBeVisible();
-      const library = await page.evaluate(() => JSON.parse(localStorage.getItem('pocket-composer-library-v1')));
+      const { library, song } = await selectedTranscription(page);
       expect(library.songs.length).toBeGreaterThan(0);
-      const pitches = parseRtttl(library.songs[0].rtttl).events.filter(event => event.pitch !== null).map(event => event.pitch % 12);
+      const pitches = song.events.filter(event => event.pitch !== null).map(event => event.pitch % 12);
       expect(pitches.length).toBeGreaterThanOrEqual(3);
       expect(pitches.filter(pitch => [0, 4, 7].includes(pitch)).length / pitches.length).toBeGreaterThanOrEqual(0.75);
       expect(requests.some(request => /\/transcription\/basic-pitch\.onnx/.test(request.url))).toBe(true);
@@ -113,11 +144,15 @@ test('real MP3 conversion, selected variation and repair all run in the browser'
   await expect(page.locator('#convert-button')).toBeEnabled();
   await page.locator('#convert-button').click();
   await expect(page.locator('#conversion-status')).toContainText('interpretation', { timeout: 150000 });
-  const source = await page.locator('#score-input').inputValue();
-  const sourceSong = parseRtttl(source);
+  const { selected: converted, song: sourceSong } = await selectedTranscription(page);
+  expect(sourceSong.events.filter(event => event.pitch !== null).length).toBeGreaterThanOrEqual(3);
   // Pick a short pitched span from actual transcription, not a fabricated score.
+  // Keep at least one known event after it so repair must score a real suffix.
   const firstPitch = sourceSong.events.findIndex(event => event.pitch !== null);
-  const end = Math.min(firstPitch + 3, sourceSong.events.length);
+  expect(firstPitch).toBeGreaterThanOrEqual(0);
+  const end = Math.min(firstPitch + 3, sourceSong.events.length - 1);
+  expect(end).toBeGreaterThan(firstPitch);
+  const selection = { start: firstPitch, end };
   await page.locator('#selection-start').fill(String(firstPitch + 1));
   await page.locator('#selection-end').fill(String(end));
   await page.locator('#edit-count').selectOption('1');
@@ -129,26 +164,54 @@ test('real MP3 conversion, selected variation and repair all run in the browser'
   await expect.poll(() => page.evaluate(() => window.__actualWorkerEvents.filter(event => event.type === 'done' && event.songs?.some(song => song.editMode === 'variation')).length), { timeout: 120000 }).toBe(1);
   const varied = await page.evaluate(() => window.__actualWorkerEvents.findLast(event => event.type === 'done' && event.songs?.some(song => song.editMode === 'variation')).songs[0]);
   const result = parseRtttl(varied.rtttl);
-  expect(varied.changedEventCount).toBeGreaterThan(0);
-  expect(result.bpm).toBe(sourceSong.bpm);
-  expect(result.events.length).toBe(sourceSong.events.length);
-  for (let index = 0; index < result.events.length; index++) {
-    expect(result.events[index].duration).toBe(sourceSong.events[index].duration);
-    expect(result.events[index].dotted).toBe(sourceSong.events[index].dotted);
-    if (index < firstPitch || index >= end || sourceSong.events[index].pitch === null) expect(result.events[index]).toEqual(sourceSong.events[index]);
-  }
+  expect(varied.selection).toEqual(selection);
+  expect(varied.backend).toBe('wasm');
+  expect(varied.inferenceCalls).toBeGreaterThan(0);
+  const variationChanges = expectPitchOnlyEdit(sourceSong, result, selection);
+  expect(variationChanges).toBeGreaterThan(0);
+  expect(varied.changedEventCount).toBe(variationChanges);
+  await expect(page.locator('#score-input')).toHaveValue(varied.rtttl);
   // Repair the same range of the newly selected version using actual suffix scoring.
   await page.locator('#selection-start').fill(String(firstPitch + 1));
   await page.locator('#selection-end').fill(String(end));
   await page.locator('#repair-selection').click();
   await expect.poll(() => page.evaluate(() => window.__actualWorkerEvents.filter(event => event.type === 'done' && event.songs?.some(song => song.editMode === 'repair')).length), { timeout: 120000 }).toBe(1);
   const repaired = await page.evaluate(() => window.__actualWorkerEvents.findLast(event => event.type === 'done' && event.songs?.some(song => song.editMode === 'repair')).songs[0]);
-  expect(repaired.repairMethod).toBeTruthy();
+  expect(repaired.repairMethod).toBe('forward-likelihood-reranking');
+  expect(repaired.selection).toEqual(selection);
+  expect(repaired.backend).toBe('wasm');
+  expect(repaired.inferenceCalls).toBeGreaterThan(0);
   const repairSong = parseRtttl(repaired.rtttl);
-  expect(repairSong.bpm).toBe(result.bpm);
-  for (let index = 0; index < repairSong.events.length; index++) {
-    if (index < firstPitch || index >= end) expect(repairSong.events[index]).toEqual(result.events[index]);
+  const repairChanges = expectPitchOnlyEdit(result, repairSong, selection);
+  expect(repaired.changedEventCount).toBe(repairChanges);
+  expect(repaired.originalChosen).toBe(repairChanges === 0);
+  const scores = repaired.scoreDetails;
+  expect(scores.method).toBe('forward-log-likelihood');
+  expect(scores.scoreUnit).toBe('natural-log');
+  expect(scores.candidateCount).toBeGreaterThanOrEqual(2);
+  expect(scores.candidates.length).toBe(scores.candidateCount);
+  expect(scores.suffixEventCount).toBe(Math.min(8, result.events.length - end));
+  expect(scores.suffixEventCount).toBeGreaterThan(0);
+  expect(scores.scoredTokenCount).toBe(2 * (end - firstPitch + scores.suffixEventCount));
+  const baseline = scores.candidates.filter(candidate => candidate.original);
+  expect(baseline.length).toBe(1);
+  expect(baseline[0].changedEventCount).toBe(0);
+  expect(scores.originalLogLikelihood).toBeCloseTo(baseline[0].totalLogLikelihood, 6);
+  for (const candidate of scores.candidates) {
+    expect(Number.isFinite(candidate.spanLogLikelihood)).toBe(true);
+    expect(Number.isFinite(candidate.suffixLogLikelihood)).toBe(true);
+    expect(Number.isFinite(candidate.totalLogLikelihood)).toBe(true);
+    expect(candidate.totalLogLikelihood).toBeCloseTo(candidate.spanLogLikelihood + candidate.suffixLogLikelihood, 6);
+    if (!candidate.original) expect(candidate.changedEventCount).toBeGreaterThan(0);
   }
+  expect(scores.winningLogLikelihood).toBeCloseTo(Math.max(...scores.candidates.map(candidate => candidate.totalLogLikelihood)), 6);
+  expect(scores.scoreDelta).toBeGreaterThanOrEqual(-1e-6);
+  expect(scores.scoreDelta).toBeCloseTo(scores.winningLogLikelihood - scores.originalLogLikelihood, 6);
+  if (repaired.originalChosen) expect(scores.scoreDelta).toBeCloseTo(0, 6);
+  await expect(page.locator('#score-input')).toHaveValue(repaired.rtttl);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('pocket-composer-library-v1')));
+  expect(saved.songs.find(song => song.id === converted.id)?.rtttl).toBe(converted.rtttl);
+  expect(saved.songs.find(song => song.id === varied.id)?.rtttl).toBe(varied.rtttl);
   await expect(page.locator('#error-message')).not.toBeVisible();
   expect(requests.filter(request => request.method !== 'GET' || /\/api\//.test(request.url))).toEqual([]);
   await testInfo.attach('real-studio-inference.json', { body: JSON.stringify({ format: 'mp3', originalEvents: sourceSong.events.length, selected: { start: firstPitch, end }, changedEvents: varied.changedEventCount, repairMethod: repaired.repairMethod, originalChosen: repaired.originalChosen, variationHash: sha256(varied.rtttl), repairHash: sha256(repaired.rtttl), audioUploaded: false, modelSha256: manifest.modelSha256 }, null, 2), contentType: 'application/json' });
